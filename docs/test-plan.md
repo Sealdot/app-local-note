@@ -59,11 +59,6 @@
 Before pushing a development branch:
 
 ```sh
-swift test
-swift build -c release
+./scripts/verify.sh
 ./scripts/performance-smoke.sh
-./scripts/package-app.sh
-plutil -lint build/LocalNote.app/Contents/Info.plist
-codesign --verify build/LocalNote.app
 ```
-

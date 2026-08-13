@@ -27,11 +27,15 @@ are not currently distributed.
 - no full Xcode installation is required for command-line builds
 
 ```sh
-swift build
-swift test
+./scripts/build.sh
+./scripts/test.sh
 ./scripts/package-app.sh
 open build/LocalNote.app
 ```
+
+With a full Xcode installation, the Swift Package can also be built with
+`swift build`. The repository scripts compile directly with `swiftc` so the
+self-use workflow works with Command Line Tools alone.
 
 ## Notion setup
 
@@ -40,9 +44,8 @@ the page used by Local Note, and enter the token in the app. The token is saved
 to Keychain and is never written to the repository or daily JSON files.
 
 See [architecture](docs/architecture.md), [implementation plan](docs/implementation-plan.md),
-and [test plan](docs/test-plan.md).
+the [test plan](docs/test-plan.md), and the measured [performance baseline](docs/performance.md).
 
 ## License
 
 MIT
-
