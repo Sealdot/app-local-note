@@ -35,7 +35,11 @@ public enum MarkdownCodec {
         case .text:
             prefix = ""
         }
-        let escaped = escape(item.text)
+        var escaped = escape(item.text)
+        if item.kind == .text,
+           escaped.range(of: #"^(?:- |\d+\. )"#, options: .regularExpression) != nil {
+            escaped = "\\" + escaped
+        }
         let content = item.isStruck && !escaped.isEmpty ? "~~\(escaped)~~" : escaped
         return indent + prefix + content
     }
@@ -168,4 +172,3 @@ public enum WorkLogMarkdown {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
-

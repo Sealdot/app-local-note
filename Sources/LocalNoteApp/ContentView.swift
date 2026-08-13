@@ -5,7 +5,12 @@ import LocalNoteCore
 
 struct ContentView: View {
     @ObservedObject var model: AppModel
-    @State private var showingSettings = false
+    @State private var showingSettings: Bool
+
+    init(model: AppModel, initiallyShowingSettings: Bool = false) {
+        self.model = model
+        _showingSettings = State(initialValue: initiallyShowingSettings)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -159,8 +164,7 @@ struct ContentView: View {
             HStack {
                 Button("保存设置") { model.saveSettings() }
                 Button("保存并同步") {
-                    model.saveSettings()
-                    model.syncNow()
+                    if model.saveSettings() { model.syncNow() }
                 }
             }
         }

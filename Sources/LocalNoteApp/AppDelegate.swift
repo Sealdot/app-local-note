@@ -2,12 +2,17 @@ import AppKit
 import SwiftUI
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
-    private let model = AppModel()
+    private let model: AppModel
     private let popover = NSPopover()
     private var statusItem: NSStatusItem?
 
+    init(model: AppModel = AppModel()) {
+        self.model = model
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.accessory)
+        NSApplication.shared.mainMenu = ApplicationMenu.make()
 
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = item.button {
@@ -33,10 +38,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.performClose(sender)
             return
         }
+        showPopover()
+    }
+
+    private func showPopover() {
         guard let button = statusItem?.button else { return }
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApplication.shared.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
         model.syncNow()
     }
 }
-

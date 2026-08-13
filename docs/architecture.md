@@ -52,6 +52,10 @@ Before pushing, the coordinator fetches the remote document:
 2. local equals the base: accept the remote content;
 3. both changed: stop and expose a conflict instead of overwriting either side.
 
+If Notion reports a truncated Markdown response, synchronization stops before
+any PATCH. Replacing a page from a partial response could otherwise erase
+content that was not returned by the API.
+
 Automatic work is event driven: application launch, opening the popover,
 local edits after a debounce, manual refresh, and network restoration. There
 is no recurring polling timer. A fully quit application synchronizes on its
@@ -76,4 +80,3 @@ These are engineering targets, not platform guarantees:
 
 The app must not retain URL responses, historical documents, or finished sync
 tasks after completion.
-

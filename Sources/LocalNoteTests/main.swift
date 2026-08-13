@@ -39,6 +39,16 @@ func temporaryDirectory() throws -> URL {
     return url
 }
 
+func notionResponse(markdown: String, truncated: Bool = false) throws -> Data {
+    try JSONSerialization.data(withJSONObject: [
+        "object": "page_markdown",
+        "id": "12345678-90ab-cdef-1234-567890abcdef",
+        "markdown": markdown,
+        "truncated": truncated,
+        "unknown_block_ids": []
+    ])
+}
+
 final class StubTransport: HTTPTransporting {
     var requests: [URLRequest] = []
     var responseData = Data()
@@ -63,6 +73,12 @@ final class StubTransport: HTTPTransporting {
 }
 
 let fixedDate = Date(timeIntervalSince1970: 1_700_000_000)
+
+#if LOCAL_NOTE_DIRECT_TESTS
+let applicationTests = appTests()
+#else
+let applicationTests: [TestCase] = []
+#endif
 
 let tests: [TestCase] = [
     TestCase("new document and append") {
@@ -109,6 +125,19 @@ let tests: [TestCase] = [
         OutlineEditor.toggleCompletion(in: &document, id: item.id)
         try expect(document.items[0].manualStrikethrough, "explicit strike should survive unchecking")
         try expect(document.items[0].isStruck, "explicitly struck item should remain struck")
+    },
+    TestCase("kind changes and depth boundaries remain valid") {
+        let first = OutlineItem(depth: 0, kind: .checkbox, text: "first", checked: true)
+        let second = OutlineItem(depth: 0, kind: .checkbox, text: "second")
+        var document = DayDocument(dateKey: "2026-08-13", items: [first, second])
+        OutlineEditor.outdent(in: &document, id: first.id)
+        try expect(document.items[0].depth == 0, "top-level rows must not outdent below zero")
+        OutlineEditor.indent(in: &document, id: second.id)
+        OutlineEditor.indent(in: &document, id: second.id)
+        try expect(document.items[1].depth == 1, "a row must not jump beyond its previous sibling")
+        OutlineEditor.changeKind(in: &document, id: first.id, kind: .numbered)
+        try expect(document.items[0].kind == .numbered, "row kind should change")
+        try expect(!document.items[0].checked, "non-checkbox rows must clear checkbox state")
     },
     TestCase("date keys follow the provided local calendar") {
         var calendar = Calendar(identifier: .gregorian)
@@ -164,6 +193,19 @@ let tests: [TestCase] = [
         try expect(decoded.items[0].checked, "checked state should round-trip")
         try expect(decoded.items[2].manualStrikethrough, "manual strike should round-trip")
     },
+    TestCase("plain text starting with list markers stays plain text") {
+        let items = [
+            OutlineItem(kind: .text, text: "- looks like a bullet"),
+            OutlineItem(kind: .text, text: "1. looks numbered")
+        ]
+        let document = DayDocument(dateKey: "2026-08-13", items: items)
+        let decoded = MarkdownCodec.decode(MarkdownCodec.encode(document), dateKey: document.dateKey)
+        try expect(decoded.items.map(\.kind) == [.text, .text], "escaped text must not become lists")
+        try expect(decoded.items.map(\.text) == items.map(\.text), "escaped markers must restore exactly")
+    },
+    TestCase("empty day encodes to an empty body") {
+        try expect(MarkdownCodec.encode(DayDocument(dateKey: "2026-08-13")).isEmpty, "empty day body should be empty")
+    },
     TestCase("work log section extraction and replacement") {
         let page = "## 20260813\n\n- [ ] old\n\n## 20260812\n\n- [x] history"
         try expect(WorkLogMarkdown.section(in: page, dateKey: "2026-08-13") == "- [ ] old", "current day should be extracted")
@@ -189,7 +231,7 @@ let tests: [TestCase] = [
     },
     TestCase("Notion GET request is correct and redaction-safe") {
         let transport = StubTransport()
-        transport.responseData = try JSONSerialization.data(withJSONObject: ["markdown": "hello"])
+        transport.responseData = try notionResponse(markdown: "hello")
         let client = NotionClient(transport: transport, baseURL: URL(string: "https://example.test")!)
         var received: Result<String, NotionError>?
         client.retrievePageMarkdown(pageID: "1234567890abcdef1234567890abcdef", token: "secret-token") { received = $0 }
@@ -203,7 +245,7 @@ let tests: [TestCase] = [
     },
     TestCase("Notion PATCH sends replace_content") {
         let transport = StubTransport()
-        transport.responseData = try JSONSerialization.data(withJSONObject: ["markdown": "updated"])
+        transport.responseData = try notionResponse(markdown: "updated")
         let client = NotionClient(transport: transport, baseURL: URL(string: "https://example.test")!)
         var received: Result<String, NotionError>?
         client.replacePageMarkdown(pageID: "1234567890abcdef1234567890abcdef", token: "token", markdown: "body") { received = $0 }
@@ -226,6 +268,27 @@ let tests: [TestCase] = [
         client.retrievePageMarkdown(pageID: "1234567890abcdef1234567890abcdef", token: "token") { received = $0 }
         guard case let .failure(error)? = received else { throw TestFailure.message("429 should fail") }
         try expect(error == .http(status: 429, retryAfter: 4), "Retry-After should be retained")
+    },
+    TestCase("Notion API error codes have localized guidance") {
+        let cases = [
+            ("unauthorized", "Token 无效"),
+            ("restricted_resource", "没有所需权限"),
+            ("object_not_found", "尚未授权"),
+            ("rate_limited", "稍后重试")
+        ]
+        for (code, expected) in cases {
+            let transport = StubTransport()
+            transport.statusCode = 400
+            transport.responseData = try JSONSerialization.data(withJSONObject: [
+                "code": code,
+                "message": "server detail"
+            ])
+            let client = NotionClient(transport: transport, baseURL: URL(string: "https://example.test")!)
+            var received: Result<String, NotionError>?
+            client.retrievePageMarkdown(pageID: "1234567890abcdef1234567890abcdef", token: "token") { received = $0 }
+            guard case let .failure(error)? = received else { throw TestFailure.message("\(code) should fail") }
+            try expect(error.description.contains(expected), "\(code) should be actionable in Chinese")
+        }
     },
     TestCase("common Notion HTTP failures remain distinguishable") {
         for status in [401, 403, 404, 409, 500, 503] {
@@ -280,7 +343,7 @@ let tests: [TestCase] = [
         try expect(decoded.items.count == 2000, "all rows should round-trip")
         try expect(elapsed < 2, "2,000 rows should complete within smoke-test budget")
     }
-]
+] + applicationTests
 
 extension Optional {
     func unwrap(_ message: String) throws -> Wrapped {

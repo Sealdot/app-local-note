@@ -31,6 +31,7 @@ public enum SyncPlanner {
 public enum NotionError: Error, Equatable, CustomStringConvertible {
     case invalidPageID
     case invalidResponse
+    case truncatedContent
     case http(status: Int, retryAfter: Int?)
     case api(code: String, message: String)
     case transport(String)
@@ -41,13 +42,22 @@ public enum NotionError: Error, Equatable, CustomStringConvertible {
             return "Notion 页面 ID 无效"
         case .invalidResponse:
             return "Notion 返回了无法解析的响应"
+        case .truncatedContent:
+            return "Notion 页面过大，已停止同步以避免覆盖未读取内容"
         case let .http(status, retryAfter):
             if let retryAfter = retryAfter {
                 return "Notion 请求失败（HTTP \(status)，\(retryAfter) 秒后可重试）"
             }
             return "Notion 请求失败（HTTP \(status)）"
-        case let .api(_, message):
-            return message
+        case let .api(code, message):
+            switch code {
+            case "unauthorized": return "Notion Token 无效"
+            case "restricted_resource": return "Notion 集成没有所需权限"
+            case "object_not_found": return "Notion 页面不存在，或尚未授权给该集成"
+            case "rate_limited": return "Notion 请求过于频繁，请稍后重试"
+            case "validation_error": return "Notion 拒绝了本次更新：\(message)"
+            default: return message
+            }
         case let .transport(message):
             return message
         }
@@ -103,7 +113,7 @@ public final class NotionClient {
         var request = URLRequest(url: endpoint(pageID: normalized))
         request.httpMethod = "GET"
         applyHeaders(to: &request, token: token)
-        perform(request, completion: completion)
+        perform(request, rejectTruncatedContent: true, completion: completion)
     }
 
     public func replacePageMarkdown(
@@ -131,7 +141,7 @@ public final class NotionClient {
             completion(.failure(.transport("无法生成 Notion 请求")))
             return
         }
-        perform(request, completion: completion)
+        perform(request, rejectTruncatedContent: false, completion: completion)
     }
 
     private func applyHeaders(to request: inout URLRequest, token: String) {
@@ -148,7 +158,11 @@ public final class NotionClient {
             .appendingPathComponent("markdown")
     }
 
-    private func perform(_ request: URLRequest, completion: @escaping (Result<String, NotionError>) -> Void) {
+    private func perform(
+        _ request: URLRequest,
+        rejectTruncatedContent: Bool,
+        completion: @escaping (Result<String, NotionError>) -> Void
+    ) {
         transport.send(request) { result in
             switch result {
             case let .failure(error):
@@ -166,8 +180,13 @@ public final class NotionClient {
                     return
                 }
                 guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      let markdown = json["markdown"] as? String else {
+                      let markdown = json["markdown"] as? String,
+                      let truncated = json["truncated"] as? Bool else {
                     completion(.failure(.invalidResponse))
+                    return
+                }
+                if rejectTruncatedContent && truncated {
+                    completion(.failure(.truncatedContent))
                     return
                 }
                 completion(.success(markdown))

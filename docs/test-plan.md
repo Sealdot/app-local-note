@@ -1,5 +1,14 @@
 # Test plan
 
+## Regression lesson
+
+The original 20-test suite compiled only `LocalNoteCore`. It could validate
+documents, Markdown, persistence, and HTTP request construction, but it never
+compiled or rendered `AppModel`, `ContentView`, or the menu command setup. A
+green result therefore said nothing about macOS first-responder behavior or
+keyboard shortcuts in the status-item popover. The direct test build now
+includes those app sources and exercises the real SwiftUI text controls.
+
 ## Unit tests
 
 ### Domain and editing
@@ -42,6 +51,15 @@
 - Keychain save/read/delete is tested with a test-only service name;
 - a packaged app has `LSUIElement=true` and launches without a Dock window;
 - offline launch, edit, quit, and relaunch preserves content.
+
+## UI regression coverage
+
+The test executable renders the real SwiftUI outline in an AppKit window,
+makes its `NSTextField` the first responder, dispatches `Command-V` through the
+application's Edit menu, and verifies that the paste reaches `AppModel`. This
+specifically prevents the menu-bar paste regression that a model-only suite
+cannot detect. Release acceptance also includes a manual pass through the real
+status-item popover using an isolated data directory.
 
 ## Performance and longevity
 

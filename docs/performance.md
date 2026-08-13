@@ -5,12 +5,12 @@ build produced by `scripts/package-app.sh`.
 
 | Check | Observed | Budget |
 |---|---:|---:|
-| Packaged app size | 600 KB | < 5 MB |
-| Idle resident memory after launch | 28,832 KB | < 128 MB smoke ceiling |
+| Packaged app size | 1.9 MB | < 5 MB |
+| Idle resident memory after launch | 29,856 KB | < 128 MB smoke ceiling |
 | Idle RSS growth over eight samples / 24 seconds | 0 KB | < 16 MB |
 | Idle CPU sample | 0.0% | approximately 0% |
 | Load today with 3,650 unrelated history files | < 1 second | < 1 second |
-| Markdown encode/decode for 2,000 rows | included in 0.65 second suite | < 2 seconds |
+| Markdown encode/decode for 2,000 rows | included in 0.53 second performance suite | < 2 seconds |
 
 The smoke script also samples the idle process eight times over 24 seconds and
 fails if RSS grows by more than 16 MB during that interval. The RSS ceiling is

@@ -45,7 +45,8 @@ final class AppModel: ObservableObject {
     private var saveWorkItem: DispatchWorkItem?
     private var syncWorkItem: DispatchWorkItem?
     private var syncInFlight = false
-    private let networkMonitor = NWPathMonitor()
+    private var syncRequestedWhileInFlight = false
+    private let networkMonitor: NWPathMonitor?
     private var networkWasAvailable = false
 
     init(
@@ -54,13 +55,15 @@ final class AppModel: ObservableObject {
         secretStore: SecretStoring,
         notionClient: NotionClient,
         defaults: UserDefaults = .standard,
-        today: Date = Date()
+        today: Date = Date(),
+        monitorsNetwork: Bool = true
     ) {
         self.dayStore = dayStore
         self.snapshotStore = snapshotStore
         self.secretStore = secretStore
         self.notionClient = notionClient
         self.defaults = defaults
+        networkMonitor = monitorsNetwork ? NWPathMonitor() : nil
         let key = DateKey.make(from: today)
         dateKey = key
         document = (try? dayStore.load(dateKey: key)) ?? DayDocument(dateKey: key)
@@ -69,7 +72,7 @@ final class AppModel: ObservableObject {
         notionPageID = storedPageID
         notionToken = storedToken
         syncState = storedPageID.isEmpty || storedToken.isEmpty ? .notConfigured : .idle
-        startNetworkMonitor()
+        if monitorsNetwork { startNetworkMonitor() }
     }
 
     convenience init() {
@@ -93,7 +96,7 @@ final class AppModel: ObservableObject {
     }
 
     deinit {
-        networkMonitor.cancel()
+        networkMonitor?.cancel()
     }
 
     func itemBinding(id: UUID) -> Binding<String> {
@@ -154,25 +157,38 @@ final class AppModel: ObservableObject {
         load(dateKey: DateKey.make(from: Date()))
     }
 
-    func saveSettings() {
-        let normalizedPageID = NotionPageID.normalize(notionPageID) ?? notionPageID.trimmingCharacters(in: .whitespacesAndNewlines)
+    @discardableResult
+    func saveSettings() -> Bool {
+        let pageIDInput = notionPageID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let tokenInput = notionToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !pageIDInput.isEmpty, NotionPageID.normalize(pageIDInput) == nil {
+            syncState = .error("Notion 页面 ID 或 URL 无效")
+            return false
+        }
+        let normalizedPageID = NotionPageID.normalize(pageIDInput) ?? ""
         notionPageID = normalizedPageID
+        notionToken = tokenInput
         defaults.set(normalizedPageID, forKey: Self.pageIDDefaultsKey)
         do {
-            if notionToken.isEmpty {
+            if tokenInput.isEmpty {
                 try secretStore.delete(account: Self.tokenAccount)
             } else {
-                try secretStore.save(notionToken, account: Self.tokenAccount)
+                try secretStore.save(tokenInput, account: Self.tokenAccount)
             }
-            syncState = normalizedPageID.isEmpty || notionToken.isEmpty ? .notConfigured : .idle
+            syncState = normalizedPageID.isEmpty || tokenInput.isEmpty ? .notConfigured : .idle
+            return true
         } catch {
             syncState = .error("无法保存 Notion Token")
+            return false
         }
     }
 
     func syncNow() {
         syncWorkItem?.cancel()
-        guard !syncInFlight else { return }
+        guard !syncInFlight else {
+            syncRequestedWhileInFlight = true
+            return
+        }
         let pageID = notionPageID.trimmingCharacters(in: .whitespacesAndNewlines)
         let token = notionToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !pageID.isEmpty, !token.isEmpty else {
@@ -206,8 +222,7 @@ final class AppModel: ObservableObject {
                         self.persistSnapshot(dateKey: currentDateKey, markdown: remoteDay)
                         DispatchQueue.main.async {
                             if self.dateKey == currentDateKey { self.document = pulled }
-                            self.syncInFlight = false
-                            self.syncState = .synced
+                            self.finishSync(state: .synced)
                         }
                     } catch {
                         self.finishSync(state: .error("同步内容无法保存到本地"))
@@ -307,10 +322,15 @@ final class AppModel: ObservableObject {
         DispatchQueue.main.async {
             self.syncInFlight = false
             self.syncState = state
+            if self.syncRequestedWhileInFlight {
+                self.syncRequestedWhileInFlight = false
+                self.syncNow()
+            }
         }
     }
 
     private func startNetworkMonitor() {
+        guard let networkMonitor = networkMonitor else { return }
         networkMonitor.pathUpdateHandler = { [weak self] path in
             guard let self = self else { return }
             let available = path.status == .satisfied
