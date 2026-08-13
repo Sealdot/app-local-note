@@ -8,6 +8,16 @@ set -eu
 plutil -lint build/LocalNote.app/Contents/Info.plist
 codesign --verify --deep --strict build/LocalNote.app
 
+if [ ! -s "build/LocalNote.app/Contents/Resources/AppIcon.icns" ]; then
+  echo "Packaged app icon is missing" >&2
+  exit 1
+fi
+
+if [ "$(plutil -extract CFBundleIconFile raw build/LocalNote.app/Contents/Info.plist)" != "AppIcon" ]; then
+  echo "Packaged app must reference AppIcon.icns" >&2
+  exit 1
+fi
+
 if [ "$(plutil -extract LSUIElement raw build/LocalNote.app/Contents/Info.plist)" != "true" ]; then
   echo "Packaged app must be a menu bar LSUIElement" >&2
   exit 1

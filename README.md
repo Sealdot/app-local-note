@@ -44,7 +44,8 @@ the page used by Local Note, and enter the token in the app. The token is saved
 to Keychain and is never written to the repository or daily JSON files.
 
 See [architecture](docs/architecture.md), [implementation plan](docs/implementation-plan.md),
-the [test plan](docs/test-plan.md), and the measured [performance baseline](docs/performance.md).
+the [test plan](docs/test-plan.md), the measured [performance baseline](docs/performance.md),
+and the [app icon rationale](docs/icon-design.md).
 
 ## License
 
