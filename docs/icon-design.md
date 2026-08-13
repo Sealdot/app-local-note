@@ -46,4 +46,3 @@ Text: none.
 Constraints: exactly one icon, square 1024×1024 composition; exactly one folded-corner note and exactly two clear check marks; no letters, no words, no numbers, no watermark; no Notion logo or copied brand mark; no complex shadow, no dramatic 3D, no photorealism, no transparency, no mockup frame, no extra floating objects.
 Avoid: busy background, heavy gradients, glassmorphism, neon, gloss, bevels, excessive depth, multiple notes, three or more checks, cloud or network imagery, browser imagery, device imagery, logo text.
 ```
-

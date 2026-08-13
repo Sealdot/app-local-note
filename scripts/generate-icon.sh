@@ -24,4 +24,3 @@ cp "$source_icon" "$iconset/icon_512x512@2x.png"
 iconutil -c icns "$iconset" -o "$output"
 
 echo "Generated $output"
-
