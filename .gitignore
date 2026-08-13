@@ -1,0 +1,19 @@
+.DS_Store
+.build/
+build/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# Local credentials and user content
+.env
+.env.*
+!.env.example
+Secrets.xcconfig
+*.p12
+*.mobileprovision
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+LocalData/
+
