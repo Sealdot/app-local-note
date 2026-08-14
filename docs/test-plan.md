@@ -53,6 +53,8 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - remote-only edits pull;
 - repeated pulls normalize Notion numbering without false conflicts or writes;
 - simultaneous changes produce a conflict and never overwrite;
+- choosing Notion resolves a conflict without PATCH;
+- choosing local re-fetches the page before one guarded PATCH;
 - duplicate passive triggers do not queue redundant synchronization;
 - requests time out instead of leaving the UI in a permanent syncing state;
 - 401, 403, 404, 409, 429, and transient 5xx responses map to actionable states;
@@ -69,10 +71,11 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 
 The test executable renders the real SwiftUI outline in an AppKit window,
 makes its `NSTextField` the first responder, dispatches `Command-V` through the
-application's Edit menu, and verifies that the paste reaches `AppModel`. This
-specifically prevents the menu-bar paste regression that a model-only suite
-cannot detect. Release acceptance also includes a manual pass through the real
-status-item popover using an isolated data directory.
+application's Edit menu, and verifies that the paste reaches `AppModel`. It
+also locates and presses the real AppKit delete button rendered for an empty
+row. These checks prevent the menu-bar paste and undeletable-row regressions
+that model-only tests cannot detect. Release acceptance also includes a manual
+pass through the real status-item popover using an isolated data directory.
 
 ## Performance and longevity
 

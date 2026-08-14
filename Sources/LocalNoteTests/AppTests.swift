@@ -123,6 +123,11 @@ private func allTextFields(in view: NSView) -> [NSTextField] {
     return current + view.subviews.flatMap(allTextFields)
 }
 
+private func allButtons(in view: NSView) -> [NSButton] {
+    let current = (view as? NSButton).map { [$0] } ?? []
+    return current + view.subviews.flatMap(allButtons)
+}
+
 private func pasteboardSnapshot(_ pasteboard: NSPasteboard) -> [NSPasteboardItem] {
     (pasteboard.pasteboardItems ?? []).map { source in
         let copy = NSPasteboardItem()
@@ -192,6 +197,25 @@ func appTests() -> [TestCase] {
                 modelValue == "快捷键粘贴",
                 "paste should update the AppModel binding (editor='\(editorValue)', field='\(field.stringValue)', model='\(modelValue)')"
             )
+            window.close()
+        },
+        TestCase("an empty outline row exposes a working delete button") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.model.addItem()
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let deleteButton = try allButtons(in: controller.view)
+                .first(where: { $0.accessibilityLabel() == "删除事项" })
+                .unwrap("empty rows should expose an accessible delete button")
+            try expect(deleteButton.isEnabled && deleteButton.alphaValue > 0, "the empty-row delete button should be visible")
+            deleteButton.performClick(nil)
+            try expect(waitUntil { fixture.model.document.items.isEmpty }, "clicking delete should remove the empty row")
             window.close()
         },
         TestCase("paste reaches both real Notion settings fields") {
@@ -407,6 +431,59 @@ func appTests() -> [TestCase] {
             try expect(waitUntil { fixture.model.syncState == .conflict }, "concurrent edits should surface a conflict")
             try expect(transport.requests.count == 1, "conflict must never PATCH remote content")
             try expect(fixture.model.document.items.first?.text == "local", "conflict must retain local content")
+        },
+        TestCase("a conflict can be resolved using Notion") {
+            let transport = StubTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let key = fixture.model.dateKey
+            fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("local row should exist")
+            fixture.model.updateText(id: id, text: "local")
+            fixture.model.flushSave()
+            try fixture.snapshotStore.save(SyncSnapshot(dateKey: key, baseMarkdown: "- [ ] base"))
+            transport.responseData = try notionResponse(
+                markdown: "\(DateKey.compact(key))\n\t- [ ] remote\n<empty-block/>"
+            )
+
+            fixture.model.syncNow()
+            try expect(waitUntil { fixture.model.syncState == .conflict }, "fixture should enter conflict")
+            fixture.model.resolveConflictUsingNotion()
+            try expect(waitUntil { fixture.model.syncState == .synced }, "Notion resolution should finish")
+            try expect(fixture.model.document.items.first?.text == "remote", "Notion resolution should replace the local day")
+            try expect(transport.requests.map(\.httpMethod) == ["GET", "GET"], "Notion resolution should never PATCH remote content")
+        },
+        TestCase("a conflict can be resolved using local content") {
+            let transport = StubTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let key = fixture.model.dateKey
+            fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("local row should exist")
+            fixture.model.updateText(id: id, text: "local winner")
+            fixture.model.flushSave()
+            try fixture.snapshotStore.save(SyncSnapshot(dateKey: key, baseMarkdown: "- [ ] base"))
+            transport.responseData = try notionResponse(
+                markdown: "\(DateKey.compact(key))\n\t- [ ] remote\n<empty-block/>"
+            )
+
+            fixture.model.syncNow()
+            try expect(waitUntil { fixture.model.syncState == .conflict }, "fixture should enter conflict")
+            fixture.model.resolveConflictUsingLocal()
+            try expect(waitUntil { fixture.model.syncState == .synced }, "local resolution should finish")
+            try expect(transport.requests.map(\.httpMethod) == ["GET", "GET", "PATCH"], "local resolution should re-read before one PATCH")
+            let patch = try transport.requests.last.unwrap("resolution PATCH should be sent")
+            let body = try JSONSerialization.jsonObject(with: patch.httpBody ?? Data()) as? [String: Any]
+            let replace = body?["replace_content"] as? [String: Any]
+            try expect((replace?["new_str"] as? String)?.contains("local winner") == true, "local resolution should write the selected local day")
         },
         TestCase("truncated Notion pages fail safely before replacement") {
             let transport = StubTransport()

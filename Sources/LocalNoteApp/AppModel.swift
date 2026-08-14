@@ -251,6 +251,62 @@ final class AppModel: ObservableObject {
         }
     }
 
+    func resolveConflictUsingNotion() {
+        guard let context = beginConflictResolution() else { return }
+        notionClient.retrievePageMarkdown(pageID: context.pageID, token: context.token) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case let .failure(error):
+                self.finishSync(state: .error(error.description))
+            case let .success(fullPage):
+                let remoteDay = WorkLogMarkdown.section(in: fullPage, dateKey: context.dateKey)
+                let remoteMarkdown = self.canonicalMarkdown(remoteDay, dateKey: context.dateKey)
+                let pulled = MarkdownCodec.decode(remoteMarkdown, dateKey: context.dateKey)
+                do {
+                    try self.dayStore.save(pulled)
+                    self.persistSnapshot(dateKey: context.dateKey, markdown: remoteMarkdown)
+                    DispatchQueue.main.async {
+                        if self.dateKey == context.dateKey { self.document = pulled }
+                        self.finishSync(state: .synced)
+                    }
+                } catch {
+                    self.finishSync(state: .error("同步内容无法保存到本地"))
+                }
+            }
+        }
+    }
+
+    func resolveConflictUsingLocal() {
+        guard let context = beginConflictResolution() else { return }
+        let localMarkdown = MarkdownCodec.encode(document)
+        notionClient.retrievePageMarkdown(pageID: context.pageID, token: context.token) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case let .failure(error):
+                self.finishSync(state: .error(error.description))
+            case let .success(fullPage):
+                let updatedPage = WorkLogMarkdown.replacingSection(
+                    in: fullPage,
+                    dateKey: context.dateKey,
+                    body: localMarkdown
+                )
+                self.notionClient.replacePageMarkdown(
+                    pageID: context.pageID,
+                    token: context.token,
+                    markdown: updatedPage
+                ) { replaceResult in
+                    switch replaceResult {
+                    case let .failure(error):
+                        self.finishSync(state: .error(error.description))
+                    case .success:
+                        self.persistSnapshot(dateKey: context.dateKey, markdown: localMarkdown)
+                        self.finishSync(state: .synced)
+                    }
+                }
+            }
+        }
+    }
+
     func flushSave() {
         saveWorkItem?.cancel()
         saveWorkItem = nil
@@ -318,6 +374,22 @@ final class AppModel: ObservableObject {
 
     private func persistSnapshot(dateKey: String, markdown: String) {
         try? snapshotStore.save(SyncSnapshot(dateKey: dateKey, baseMarkdown: markdown))
+    }
+
+    private func beginConflictResolution() -> (pageID: String, token: String, dateKey: String)? {
+        guard syncState == .conflict, !syncInFlight else { return nil }
+        let pageID = notionPageID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let token = notionToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pageID.isEmpty, !token.isEmpty else {
+            syncState = .notConfigured
+            return nil
+        }
+        syncWorkItem?.cancel()
+        flushSave()
+        syncRequestedWhileInFlight = false
+        syncInFlight = true
+        syncState = .syncing
+        return (pageID, token, dateKey)
     }
 
     private func canonicalMarkdown(_ markdown: String, dateKey: String) -> String {

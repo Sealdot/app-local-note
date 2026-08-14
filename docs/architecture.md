@@ -52,6 +52,11 @@ Before pushing, the coordinator fetches the remote document:
 2. local equals the base: accept the remote content;
 3. both changed: stop and expose a conflict instead of overwriting either side.
 
+The conflict footer offers two explicit resolutions. "以 Notion 为准" fetches
+the latest remote day and replaces only the local day. "以本地为准" first
+re-fetches the full page, then replaces only the selected remote date section
+with the local day. Neither choice runs without a user click.
+
 If Notion reports a truncated Markdown response, synchronization stops before
 any PATCH. Replacing a page from a partial response could otherwise erase
 content that was not returned by the API.

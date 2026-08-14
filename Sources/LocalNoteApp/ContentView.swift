@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 #if canImport(LocalNoteCore)
 import LocalNoteCore
@@ -6,10 +7,12 @@ import LocalNoteCore
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @State private var showingSettings: Bool
+    @State private var hoveredItemID: UUID?
 
     init(model: AppModel, initiallyShowingSettings: Bool = false) {
         self.model = model
         _showingSettings = State(initialValue: initiallyShowingSettings)
+        _hoveredItemID = State(initialValue: nil)
     }
 
     var body: some View {
@@ -106,12 +109,23 @@ struct ContentView: View {
                     Rectangle()
                         .fill(Color.secondary.opacity(0.7))
                         .frame(height: 1)
-                        .allowsHitTesting(false)
+                    .allowsHitTesting(false)
                 }
             }
+            DeleteItemButton(visible: shouldShowDelete(for: item)) {
+                model.delete(id: item.id)
+            }
+            .frame(width: 18, height: 18)
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+        .onHover { hovering in
+            if hovering {
+                hoveredItemID = item.id
+            } else if hoveredItemID == item.id {
+                hoveredItemID = nil
+            }
+        }
         .contextMenu {
             Button("增加层级") { model.indent(id: item.id) }
             Button("减少层级") { model.outdent(id: item.id) }
@@ -125,6 +139,11 @@ struct ContentView: View {
             Divider()
             Button("删除") { model.delete(id: item.id) }
         }
+    }
+
+    private func shouldShowDelete(for item: OutlineItem) -> Bool {
+        hoveredItemID == item.id
+            || item.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private var settings: some View {
@@ -188,17 +207,28 @@ struct ContentView: View {
                 .foregroundColor(.secondary)
             Spacer()
             if !showingSettings {
-                Button(action: model.addItem) {
-                    Image(systemName: "plus")
+                if model.syncState == .conflict {
+                    Button("以 Notion 为准") {
+                        model.resolveConflictUsingNotion()
+                    }
+                    .help("放弃本地当天改动，重新拉取 Notion")
+                    Button("以本地为准") {
+                        model.resolveConflictUsingLocal()
+                    }
+                    .help("用本地当天内容覆盖 Notion")
+                } else {
+                    Button(action: model.addItem) {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .help("添加事项")
+                    Button(action: { model.syncNow() }) {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .disabled(model.syncState == .syncing)
+                    .help("立即同步")
                 }
-                .buttonStyle(PlainButtonStyle())
-                .help("添加事项")
-                Button(action: { model.syncNow() }) {
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                }
-                .buttonStyle(PlainButtonStyle())
-                .disabled(model.syncState == .syncing)
-                .help("立即同步")
             }
         }
         .padding(.horizontal, 14)
@@ -212,5 +242,37 @@ struct ContentView: View {
         case .conflict, .error: return .red
         case .notConfigured, .idle: return .secondary
         }
+    }
+}
+
+private struct DeleteItemButton: NSViewRepresentable {
+    let visible: Bool
+    let action: () -> Void
+
+    func makeNSView(context: Context) -> CallbackButton {
+        let button = CallbackButton()
+        button.isBordered = false
+        button.image = NSImage(systemSymbolName: "trash", accessibilityDescription: "删除事项")
+        button.imagePosition = .imageOnly
+        button.contentTintColor = .secondaryLabelColor
+        button.toolTip = "删除此项及其子项"
+        button.setAccessibilityLabel("删除事项")
+        button.target = button
+        button.action = #selector(CallbackButton.performAction(_:))
+        return button
+    }
+
+    func updateNSView(_ button: CallbackButton, context: Context) {
+        button.handler = action
+        button.alphaValue = visible ? 1 : 0
+        button.isEnabled = visible
+    }
+}
+
+private final class CallbackButton: NSButton {
+    var handler: (() -> Void)?
+
+    @objc func performAction(_ sender: Any?) {
+        handler?()
     }
 }
