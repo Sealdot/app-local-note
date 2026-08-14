@@ -183,10 +183,10 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func syncNow() {
+    func syncNow(queueIfBusy: Bool = false) {
         syncWorkItem?.cancel()
         guard !syncInFlight else {
-            syncRequestedWhileInFlight = true
+            if queueIfBusy { syncRequestedWhileInFlight = true }
             return
         }
         let pageID = notionPageID.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -202,7 +202,8 @@ final class AppModel: ObservableObject {
         let currentDateKey = dateKey
         let localDocument = document
         let localMarkdown = MarkdownCodec.encode(localDocument)
-        let base = snapshotStore.load(dateKey: currentDateKey)?.baseMarkdown ?? ""
+        let storedBase = snapshotStore.load(dateKey: currentDateKey)?.baseMarkdown ?? ""
+        let base = canonicalMarkdown(storedBase, dateKey: currentDateKey)
 
         notionClient.retrievePageMarkdown(pageID: pageID, token: token) { [weak self] result in
             guard let self = self else { return }
@@ -211,15 +212,16 @@ final class AppModel: ObservableObject {
                 self.finishSync(state: .error(error.description))
             case let .success(fullPage):
                 let remoteDay = WorkLogMarkdown.section(in: fullPage, dateKey: currentDateKey)
-                switch SyncPlanner.decide(base: base, local: localMarkdown, remote: remoteDay) {
+                let remoteMarkdown = self.canonicalMarkdown(remoteDay, dateKey: currentDateKey)
+                switch SyncPlanner.decide(base: base, local: localMarkdown, remote: remoteMarkdown) {
                 case .noChange:
                     self.persistSnapshot(dateKey: currentDateKey, markdown: localMarkdown)
                     self.finishSync(state: .synced)
                 case .pull:
-                    let pulled = MarkdownCodec.decode(remoteDay, dateKey: currentDateKey)
+                    let pulled = MarkdownCodec.decode(remoteMarkdown, dateKey: currentDateKey)
                     do {
                         try self.dayStore.save(pulled)
-                        self.persistSnapshot(dateKey: currentDateKey, markdown: remoteDay)
+                        self.persistSnapshot(dateKey: currentDateKey, markdown: remoteMarkdown)
                         DispatchQueue.main.async {
                             if self.dateKey == currentDateKey { self.document = pulled }
                             self.finishSync(state: .synced)
@@ -298,7 +300,7 @@ final class AppModel: ObservableObject {
     private func scheduleSync() {
         guard !notionPageID.isEmpty, !notionToken.isEmpty else { return }
         syncWorkItem?.cancel()
-        let workItem = DispatchWorkItem { [weak self] in self?.syncNow() }
+        let workItem = DispatchWorkItem { [weak self] in self?.syncNow(queueIfBusy: true) }
         syncWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 3, execute: workItem)
     }
@@ -316,6 +318,10 @@ final class AppModel: ObservableObject {
 
     private func persistSnapshot(dateKey: String, markdown: String) {
         try? snapshotStore.save(SyncSnapshot(dateKey: dateKey, baseMarkdown: markdown))
+    }
+
+    private func canonicalMarkdown(_ markdown: String, dateKey: String) -> String {
+        MarkdownCodec.encode(MarkdownCodec.decode(markdown, dateKey: dateKey))
     }
 
     private func finishSync(state: AppSyncState) {

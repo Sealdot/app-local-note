@@ -206,6 +206,12 @@ let tests: [TestCase] = [
     TestCase("empty day encodes to an empty body") {
         try expect(MarkdownCodec.encode(DayDocument(dateKey: "2026-08-13")).isEmpty, "empty day body should be empty")
     },
+    TestCase("Notion empty blocks and empty checkboxes decode safely") {
+        let decoded = MarkdownCodec.decode("- [ ]\n<empty-block/>", dateKey: "2026-08-14")
+        try expect(decoded.items.count == 1, "Notion structural empty blocks should not become rows")
+        try expect(decoded.items[0].kind == .checkbox, "an empty Notion to-do should stay a checkbox")
+        try expect(decoded.items[0].text.isEmpty, "an empty Notion to-do should stay empty")
+    },
     TestCase("work log section extraction and replacement") {
         let page = "## 20260813\n\n- [ ] old\n\n## 20260812\n\n- [x] history"
         try expect(WorkLogMarkdown.section(in: page, dateKey: "2026-08-13") == "- [ ] old", "current day should be extracted")
@@ -214,6 +220,21 @@ let tests: [TestCase] = [
         try expect(replaced.contains("- [x] history"), "other dates must remain intact")
         let inserted = WorkLogMarkdown.replacingSection(in: page, dateKey: "2026-08-14", body: "- [ ] newest")
         try expect(inserted.hasPrefix("## 20260814"), "new day should be inserted first")
+    },
+    TestCase("plain Notion date blocks extract and preserve nesting") {
+        let page = "20260814\n\t- [ ] first\n\t\t1. child\n\t- [ ]\n<empty-block/>\n20260813\n\t- [x] history"
+        let body = WorkLogMarkdown.section(in: page, dateKey: "2026-08-14")
+        try expect(body == "- [ ] first\n\t1. child\n- [ ]", "plain date children should be unindented for the local editor")
+        let decoded = MarkdownCodec.decode(body, dateKey: "2026-08-14")
+        try expect(decoded.items.map(\.depth) == [0, 1, 0], "Notion child indentation should map to local outline depth")
+        try expect(decoded.items.map(\.kind) == [.checkbox, .numbered, .checkbox], "Notion list kinds should survive a pull")
+
+        let replaced = WorkLogMarkdown.replacingSection(in: page, dateKey: "2026-08-14", body: "- [x] changed\n\t1. child")
+        try expect(replaced.hasPrefix("20260814\n\t- [x] changed\n\t\t1. child\n<empty-block/>"), "plain date replacement should preserve Notion child nesting")
+        try expect(replaced.contains("20260813\n\t- [x] history"), "plain date replacement must retain older days")
+
+        let inserted = WorkLogMarkdown.replacingSection(in: page, dateKey: "2026-08-15", body: "- [ ] newest")
+        try expect(inserted.hasPrefix("20260815\n\t- [ ] newest\n<empty-block/>\n20260814"), "new days should follow the page's existing plain-date style")
     },
     TestCase("sync planner never silently overwrites concurrent edits") {
         try expect(SyncPlanner.decide(base: "a", local: "b", remote: "a") == .push, "local-only change should push")
@@ -240,6 +261,7 @@ let tests: [TestCase] = [
         let request = try transport.requests.first.unwrap("request should be sent")
         try expect(request.httpMethod == "GET", "retrieve should use GET")
         try expect(request.url?.path.hasSuffix("/markdown") == true, "retrieve path should target markdown")
+        try expect(request.timeoutInterval == NotionClient.requestTimeout, "Notion requests should have a bounded timeout")
         try expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer secret-token", "token should be in the authorization header")
         try expect(request.value(forHTTPHeaderField: "Notion-Version") == NotionClient.apiVersion, "API version should be explicit")
     },

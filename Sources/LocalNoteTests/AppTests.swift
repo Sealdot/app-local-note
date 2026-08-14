@@ -336,13 +336,34 @@ func appTests() -> [TestCase] {
                 token: "ntn_test"
             )
             defer { try? FileManager.default.removeItem(at: fixture.root) }
-            let remote = "## \(DateKey.compact(fixture.model.dateKey))\n\n- [x] remote row"
+            let remote = "\(DateKey.compact(fixture.model.dateKey))\n\t- [x] remote row\n<empty-block/>"
             transport.responseData = try notionResponse(markdown: remote)
             fixture.model.syncNow()
             try expect(waitUntil { fixture.model.syncState == .synced }, "pull should finish")
             try expect(transport.requests.count == 1, "pull should not PATCH Notion")
             try expect(fixture.model.document.items.first?.text == "remote row", "remote content should load locally")
             try expect(fixture.model.document.items.first?.checked == true, "remote completion should load locally")
+        },
+        TestCase("Notion numbering normalization does not create a false conflict") {
+            let transport = StubTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let key = DateKey.compact(fixture.model.dateKey)
+            transport.responseData = try notionResponse(
+                markdown: "\(key)\n\t- [ ] group\n\t\t1. first\n\t\t2. second\n<empty-block/>"
+            )
+
+            fixture.model.syncNow()
+            try expect(waitUntil { fixture.model.syncState == .synced }, "initial numbered pull should finish")
+            try expect(fixture.model.document.items.map(\.depth) == [0, 1, 1], "numbered pull should preserve hierarchy")
+
+            fixture.model.syncNow()
+            try expect(waitUntil { fixture.model.syncState == .synced && transport.requests.count == 2 }, "a repeated pull should remain synced")
+            try expect(transport.requests.map(\.httpMethod) == ["GET", "GET"], "equivalent Notion numbering must not trigger PATCH")
         },
         TestCase("unchanged Notion day performs no remote write") {
             let transport = StubTransport()
@@ -405,6 +426,22 @@ func appTests() -> [TestCase] {
             try expect(transport.requests.count == 1, "partial remote content must never be replaced")
             try expect(fixture.model.syncState.label.contains("页面过大"), "error should explain the safety stop")
         },
+        TestCase("passive sync triggers do not queue redundant requests") {
+            let transport = DelayedTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+            fixture.model.syncNow()
+            fixture.model.syncNow()
+            try expect(transport.requests.count == 1, "an in-flight passive sync should not queue another GET")
+            try transport.succeedNext(markdown: "")
+            try expect(waitUntil { fixture.model.syncState == .synced }, "the original passive sync should finish")
+            try expect(transport.requests.count == 1, "finishing a passive sync should not start a duplicate")
+        },
         TestCase("edits requested during a sync trigger a follow-up sync") {
             let transport = DelayedTransport()
             let fixture = try appFixture(
@@ -418,7 +455,7 @@ func appTests() -> [TestCase] {
             try expect(transport.requests.count == 1, "first retrieve should be waiting")
             let id = try fixture.model.document.items.first.map(\.id).unwrap("new row should exist")
             fixture.model.updateText(id: id, text: "newer edit")
-            fixture.model.syncNow()
+            fixture.model.syncNow(queueIfBusy: true)
             try transport.succeedNext(markdown: "")
             try expect(transport.requests.count == 2, "first sync should issue its PATCH")
             try transport.succeedNext(markdown: "")

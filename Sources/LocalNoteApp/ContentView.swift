@@ -26,9 +26,6 @@ struct ContentView: View {
         }
         .frame(width: 440, height: 560)
         .background(Color(NSColor.windowBackgroundColor))
-        .onAppear {
-            if !showingSettings { model.syncNow() }
-        }
     }
 
     private var header: some View {
@@ -196,10 +193,11 @@ struct ContentView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .help("添加事项")
-                Button(action: model.syncNow) {
+                Button(action: { model.syncNow() }) {
                     Image(systemName: "arrow.triangle.2.circlepath")
                 }
                 .buttonStyle(PlainButtonStyle())
+                .disabled(model.syncState == .syncing)
                 .help("立即同步")
             }
         }

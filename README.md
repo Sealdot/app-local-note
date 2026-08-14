@@ -43,6 +43,14 @@ Notion sync is optional. Create your own Notion token, grant it access only to
 the page used by Local Note, and enter the token in the app. The token is saved
 to Keychain and is never written to the repository or daily JSON files.
 
+Synchronization remains event-driven to keep idle resource use low. It runs
+when the popover opens, when the refresh button is pressed, shortly after a
+local edit, and when the network becomes available again. Changes made in
+Notion while the popover is already open require the refresh button (or closing
+and reopening the popover); there is intentionally no background polling.
+Online requests normally finish within a few seconds and fail with a visible
+error after 15 seconds instead of leaving the status spinning indefinitely.
+
 See [architecture](docs/architecture.md), [implementation plan](docs/implementation-plan.md),
 the [test plan](docs/test-plan.md), the measured [performance baseline](docs/performance.md),
 and the [app icon rationale](docs/icon-design.md).

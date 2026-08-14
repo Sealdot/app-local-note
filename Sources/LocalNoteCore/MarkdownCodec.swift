@@ -45,13 +45,21 @@ public enum MarkdownCodec {
     }
 
     private static func decodeLine(_ line: String, now: Date) -> OutlineItem? {
-        if line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return nil }
+        let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty || trimmed == "<empty-block/>" { return nil }
         let depth = line.prefix { $0 == "\t" }.count
         var content = String(line.dropFirst(depth))
         var kind = OutlineItemKind.text
         var checked = false
 
-        if content.hasPrefix("- [ ] ") {
+        if content == "- [ ]" {
+            kind = .checkbox
+            content = ""
+        } else if content == "- [x]" || content == "- [X]" {
+            kind = .checkbox
+            checked = true
+            content = ""
+        } else if content.hasPrefix("- [ ] ") {
             kind = .checkbox
             content.removeFirst(6)
         } else if content.hasPrefix("- [x] ") || content.hasPrefix("- [X] ") {
@@ -121,19 +129,52 @@ public enum WorkLogMarkdown {
         guard let range = dayRange(in: lines, dateKey: dateKey) else { return "" }
         let bodyStart = range.lowerBound + 1
         guard bodyStart < range.upperBound else { return "" }
-        return normalize(lines[bodyStart..<range.upperBound].joined(separator: "\n"))
+        let nestedUnderPlainDate = headingValue(lines[range.lowerBound]) == nil
+        let body = lines[bodyStart..<range.upperBound].compactMap { line -> String? in
+            if line.trimmingCharacters(in: .whitespacesAndNewlines) == "<empty-block/>" {
+                return nil
+            }
+            if nestedUnderPlainDate, line.hasPrefix("\t") {
+                return String(line.dropFirst())
+            }
+            return line
+        }
+        return normalize(body.joined(separator: "\n"))
     }
 
     public static func replacingSection(in pageMarkdown: String, dateKey: String, body: String) -> String {
         var lines = pageMarkdown.components(separatedBy: .newlines)
-        let header = "## \(DateKey.compact(dateKey))"
-        let bodyLines = normalize(body).isEmpty ? [] : normalize(body).components(separatedBy: .newlines)
-        let replacement = [header, ""] + bodyLines
+        let existingRange = dayRange(in: lines, dateKey: dateKey)
+        let usesPlainDates: Bool
+        let marker: String
+        if let existingRange = existingRange {
+            marker = lines[existingRange.lowerBound]
+            usesPlainDates = headingValue(marker) == nil
+        } else if let plainMarker = lines.first(where: { isPlainDateMarker($0) }) {
+            marker = DateKey.compact(dateKey)
+            usesPlainDates = headingValue(plainMarker) == nil
+        } else {
+            marker = "## \(DateKey.compact(dateKey))"
+            usesPlainDates = false
+        }
 
-        if let range = dayRange(in: lines, dateKey: dateKey) {
+        let normalizedBody = normalize(body)
+        var bodyLines = normalizedBody.isEmpty ? [] : normalizedBody.components(separatedBy: .newlines)
+        if usesPlainDates {
+            bodyLines = bodyLines.map { "\t" + $0 }
+        }
+
+        var replacement = usesPlainDates ? [marker] + bodyLines : [marker, ""] + bodyLines
+        let hasFollowingContent = existingRange.map { $0.upperBound < lines.count }
+            ?? !pageMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        if usesPlainDates && hasFollowingContent {
+            replacement.append("<empty-block/>")
+        }
+
+        if let range = existingRange {
             lines.replaceSubrange(range, with: replacement)
         } else {
-            let prefix = replacement + (pageMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? [] : [""])
+            let prefix = replacement + (!usesPlainDates && hasFollowingContent ? [""] : [])
             lines.insert(contentsOf: prefix, at: 0)
         }
         return normalize(lines.joined(separator: "\n"))
@@ -142,7 +183,7 @@ public enum WorkLogMarkdown {
     private static func dayRange(in lines: [String], dateKey: String) -> Range<Int>? {
         let compact = DateKey.compact(dateKey)
         let dashed = dateKey
-        guard let start = lines.firstIndex(where: { headingValue($0) == compact || headingValue($0) == dashed }) else {
+        guard let start = lines.firstIndex(where: { dateMarkerValue($0) == compact || dateMarkerValue($0) == dashed }) else {
             return nil
         }
         var end = lines.count
@@ -160,8 +201,22 @@ public enum WorkLogMarkdown {
         return String(line[range.upperBound...]).trimmingCharacters(in: .whitespaces)
     }
 
+    private static func dateMarkerValue(_ line: String) -> String? {
+        if let heading = headingValue(line) { return heading }
+        let value = line.trimmingCharacters(in: .whitespacesAndNewlines)
+        return line == value && isDateValue(value) ? value : nil
+    }
+
+    private static func isPlainDateMarker(_ line: String) -> Bool {
+        headingValue(line) == nil && dateMarkerValue(line) != nil
+    }
+
     private static func isDateHeading(_ line: String) -> Bool {
-        guard let value = headingValue(line) else { return false }
+        guard let value = dateMarkerValue(line) else { return false }
+        return isDateValue(value)
+    }
+
+    private static func isDateValue(_ value: String) -> Bool {
         return value.range(of: #"^\d{8}$"#, options: .regularExpression) != nil
             || value.range(of: #"^\d{4}-\d{2}-\d{2}$"#, options: .regularExpression) != nil
     }

@@ -92,6 +92,7 @@ public final class URLSessionTransport: HTTPTransporting {
 
 public final class NotionClient {
     public static let apiVersion = "2026-03-11"
+    public static let requestTimeout: TimeInterval = 15
 
     private let transport: HTTPTransporting
     private let baseURL: URL
@@ -145,6 +146,7 @@ public final class NotionClient {
     }
 
     private func applyHeaders(to request: inout URLRequest, token: String) {
+        request.timeoutInterval = Self.requestTimeout
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         request.setValue(Self.apiVersion, forHTTPHeaderField: "Notion-Version")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
