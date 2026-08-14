@@ -276,6 +276,53 @@ func appTests() -> [TestCase] {
             )
             window.close()
         },
+        TestCase("Up and Down move focus between outline rows") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let firstID = try fixture.model.addItem().unwrap("first row should be added")
+            fixture.model.updateText(id: firstID, text: "1234")
+            let secondID = try fixture.model.addPeer(after: firstID).unwrap("second row should be added")
+            fixture.model.updateText(id: secondID, text: "xy")
+            let thirdID = try fixture.model.addPeer(after: secondID).unwrap("third row should be added")
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let fields = allTextFields(in: controller.view)
+            let firstField = try fields
+                .first(where: { $0.identifier?.rawValue == firstID.uuidString })
+                .unwrap("first field should be rendered")
+            let secondField = try fields
+                .first(where: { $0.identifier?.rawValue == secondID.uuidString })
+                .unwrap("second field should be rendered")
+            let thirdField = try fields
+                .first(where: { $0.identifier?.rawValue == thirdID.uuidString })
+                .unwrap("third field should be rendered")
+
+            try expect(window.makeFirstResponder(firstField), "first field should accept focus")
+            let firstEditor = try (window.firstResponder as? NSTextView).unwrap("first editor should be active")
+            firstEditor.setSelectedRange(NSRange(location: 3, length: 0))
+            try sendKey(keyCode: 125, characters: "\u{f701}", to: firstEditor, window: window)
+            try expect(waitUntil { secondField.currentEditor() != nil }, "Down should focus the next row")
+            let secondEditor = try (secondField.currentEditor() as? NSTextView).unwrap("second editor should be active")
+            try expect(secondEditor.selectedRange().location == 2, "Down should preserve and clamp the caret column")
+
+            try sendKey(keyCode: 125, characters: "\u{f701}", to: secondEditor, window: window)
+            try expect(waitUntil { thirdField.currentEditor() != nil }, "Down should focus an empty next row")
+            let thirdEditor = try (thirdField.currentEditor() as? NSTextView).unwrap("third editor should be active")
+            try expect(thirdEditor.selectedRange().location == 0, "an empty row should place the caret at its start")
+
+            try sendKey(keyCode: 126, characters: "\u{f700}", to: thirdEditor, window: window)
+            try expect(waitUntil { secondField.currentEditor() != nil }, "Up should focus the previous row")
+            try expect(
+                fixture.model.document.items.map(\.text) == ["1234", "xy", ""],
+                "vertical navigation must not change row content"
+            )
+            window.close()
+        },
         TestCase("save and sync status updates preserve marked text input") {
             let transport = DelayedTransport()
             let fixture = try appFixture(
@@ -355,6 +402,35 @@ func appTests() -> [TestCase] {
             try expect(waitUntil { fixture.model.document.items.isEmpty }, "the next Backspace on the empty row should delete it")
             window.close()
         },
+        TestCase("Backspace on an empty row focuses the previous row") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let firstID = try fixture.model.addItem().unwrap("first row should be added")
+            fixture.model.updateText(id: firstID, text: "previous")
+            let secondID = try fixture.model.addPeer(after: firstID).unwrap("second row should be added")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let fields = allTextFields(in: controller.view)
+            let firstField = try fields
+                .first(where: { $0.identifier?.rawValue == firstID.uuidString })
+                .unwrap("first field should be rendered")
+            let secondField = try fields
+                .first(where: { $0.identifier?.rawValue == secondID.uuidString })
+                .unwrap("second field should be rendered")
+            try expect(window.makeFirstResponder(secondField), "empty second field should accept focus")
+            let editor = try (window.firstResponder as? NSTextView).unwrap("second editor should be active")
+
+            try sendKey(keyCode: 51, characters: "\u{7f}", to: editor, window: window)
+            try expect(waitUntil { fixture.model.document.items.count == 1 }, "Backspace should remove the empty row")
+            try expect(waitUntil { firstField.currentEditor() != nil }, "Backspace should focus the previous row")
+            let previousEditor = try (firstField.currentEditor() as? NSTextView).unwrap("previous editor should be active")
+            try expect(previousEditor.selectedRange().location == "previous".utf16.count, "caret should move to the previous row end")
+            window.close()
+        },
         TestCase("Tab and Return follow outline-editor conventions") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -382,6 +458,15 @@ func appTests() -> [TestCase] {
             try expect(waitUntil { fixture.model.document.items.last?.depth == 0 }, "Shift-Tab should outdent the current row")
             try sendKey(keyCode: 36, characters: "\r", to: editor, window: window)
             try expect(waitUntil { fixture.model.document.items.count == 3 }, "Return should add a peer row")
+            let insertedID = try fixture.model.document.items.last.map(\.id).unwrap("inserted peer should exist")
+            try expect(
+                waitUntil {
+                    allTextFields(in: controller.view)
+                        .first(where: { $0.identifier?.rawValue == insertedID.uuidString })?
+                        .currentEditor() != nil
+                },
+                "Return should focus the inserted peer row"
+            )
             window.close()
         },
         TestCase("paste reaches both real Notion settings fields") {

@@ -39,10 +39,11 @@ self-use workflow works with Command Line Tools alone.
 
 ## Outline keyboard interaction
 
-- `Return`: add a peer item;
+- `Up` / `Down`: move to the previous or next item;
+- `Return`: add and focus a peer item;
 - `Tab` / `Shift-Tab`: indent or outdent the current item;
 - `Command-Shift-S`: toggle strikethrough for the current item;
-- `Backspace`: edit text normally, then remove the row when it is already empty;
+- `Backspace`: edit text normally, then remove an empty row and return to the previous item;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.
 
 ## Notion setup

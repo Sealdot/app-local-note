@@ -72,10 +72,11 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 
 The test executable renders the real SwiftUI outline in an AppKit window and
 makes its `NSTextField` the first responder. It dispatches `Command-V` and
-`Command-Shift-S` through the application Edit menu, then sends real Backspace,
-Tab, Shift-Tab, and Return key events through the field editor. The tests verify
-that paste and strikethrough reach `AppModel`, text is removed before an empty
-row is deleted, hierarchy changes, and peer insertion works. A dedicated input
+`Command-Shift-S` through the application Edit menu, then sends real Up, Down,
+Backspace, Tab, Shift-Tab, and Return key events through the field editor. The
+tests verify that paste and strikethrough reach `AppModel`, vertical navigation
+moves focus without changing content, Return focuses its inserted row, and
+Backspace returns focus to the preceding row after deletion. A dedicated input
 method test keeps marked text, the marked range, and first-responder focus alive
 while save and sync states publish view updates. These checks prevent keyboard
 regressions that model-only tests cannot detect. Release acceptance also

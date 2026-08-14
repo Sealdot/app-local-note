@@ -109,16 +109,22 @@ final class AppModel: ObservableObject {
         )
     }
 
-    func addItem() {
+    @discardableResult
+    func addItem() -> UUID? {
+        var insertedID: UUID?
         mutate { document in
-            _ = OutlineEditor.append(to: &document)
+            insertedID = OutlineEditor.append(to: &document)
         }
+        return insertedID
     }
 
-    func addPeer(after id: UUID) {
+    @discardableResult
+    func addPeer(after id: UUID) -> UUID? {
+        var insertedID: UUID?
         mutate { document in
-            _ = OutlineEditor.insertPeer(in: &document, after: id)
+            insertedID = OutlineEditor.insertPeer(in: &document, after: id)
         }
+        return insertedID
     }
 
     func updateText(id: UUID, text: String) {

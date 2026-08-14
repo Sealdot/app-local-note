@@ -7,10 +7,12 @@ import LocalNoteCore
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @State private var showingSettings: Bool
+    @State private var focusRequest: OutlineFocusRequest?
 
     init(model: AppModel, initiallyShowingSettings: Bool = false) {
         self.model = model
         _showingSettings = State(initialValue: initiallyShowingSettings)
+        _focusRequest = State(initialValue: nil)
     }
 
     var body: some View {
@@ -65,19 +67,26 @@ struct ContentView: View {
                         .foregroundColor(.secondary)
                     Text("今天还没有记录")
                         .foregroundColor(.secondary)
-                    Button("添加第一项", action: model.addItem)
+                    Button("添加第一项", action: addAndFocusItem)
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 4) {
-                        ForEach(model.document.items) { item in
-                            outlineRow(item)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 4) {
+                            ForEach(model.document.items) { item in
+                                outlineRow(item)
+                                    .id(item.id)
+                            }
                         }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
                     }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
+                    .onChange(of: focusRequest) { request in
+                        guard let request = request else { return }
+                        proxy.scrollTo(request.itemID)
+                    }
                 }
             }
         }
@@ -99,13 +108,21 @@ struct ContentView: View {
             }
             ZStack {
                 OutlineEditorField(
+                    itemID: item.id,
                     text: model.itemBinding(id: item.id),
-                    onCommit: { model.addPeer(after: item.id) },
-                    onDeleteEmpty: { model.delete(id: item.id) },
+                    focusRequest: focusRequest,
+                    onCommit: { addPeerAndFocus(after: item.id) },
+                    onDeleteEmpty: { deleteAndFocus(item.id) },
+                    onMoveVertical: { direction, caretOffset in
+                        moveFocus(from: item.id, direction: direction, caretOffset: caretOffset)
+                    },
                     onIndent: { model.indent(id: item.id) },
                     onOutdent: { model.outdent(id: item.id) },
                     onToggleStrike: { model.toggleStrike(id: item.id) },
-                    onBeginEditing: { model.beginEditing(id: item.id) },
+                    onBeginEditing: {
+                        focusRequest = nil
+                        model.beginEditing(id: item.id)
+                    },
                     onEndEditing: { model.endEditing(id: item.id) }
                 )
                 .frame(maxWidth: .infinity)
@@ -120,7 +137,7 @@ struct ContentView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .help("⌘⇧S 切换划线；空白事项按 Backspace 删除；右键打开更多操作")
+        .help("↑↓ 切换事项；Return 新增；⌘⇧S 划线；空行 Backspace 删除")
         .contextMenu {
             Button("增加层级") { model.indent(id: item.id) }
             Button("减少层级") { model.outdent(id: item.id) }
@@ -134,6 +151,49 @@ struct ContentView: View {
             Divider()
             Button("删除") { model.delete(id: item.id) }
         }
+    }
+
+    private func addAndFocusItem() {
+        guard let id = model.addItem() else { return }
+        requestFocus(itemID: id, caretOffset: 0)
+    }
+
+    private func addPeerAndFocus(after id: UUID) {
+        guard let insertedID = model.addPeer(after: id) else { return }
+        requestFocus(itemID: insertedID, caretOffset: 0)
+    }
+
+    private func moveFocus(from id: UUID, direction: Int, caretOffset: Int) {
+        guard let index = model.document.items.firstIndex(where: { $0.id == id }) else { return }
+        let targetIndex = index + direction
+        guard model.document.items.indices.contains(targetIndex) else { return }
+        requestFocus(itemID: model.document.items[targetIndex].id, caretOffset: caretOffset)
+    }
+
+    private func deleteAndFocus(_ id: UUID) {
+        guard let index = model.document.items.firstIndex(where: { $0.id == id }) else { return }
+        let items = model.document.items
+        let previous = index > 0 ? items[index - 1] : nil
+        let rootDepth = items[index].depth
+        var nextIndex = index + 1
+        while nextIndex < items.count && items[nextIndex].depth > rootDepth {
+            nextIndex += 1
+        }
+        let next = nextIndex < items.count ? items[nextIndex] : nil
+        model.delete(id: id)
+        if let previous = previous {
+            requestFocus(itemID: previous.id, caretOffset: previous.text.utf16.count)
+        } else if let next = next {
+            requestFocus(itemID: next.id, caretOffset: 0)
+        }
+    }
+
+    private func requestFocus(itemID: UUID, caretOffset: Int) {
+        focusRequest = OutlineFocusRequest(
+            token: UUID(),
+            itemID: itemID,
+            caretOffset: max(0, caretOffset)
+        )
     }
 
     private var settings: some View {
@@ -207,7 +267,7 @@ struct ContentView: View {
                     }
                     .help("用本地当天内容覆盖 Notion")
                 } else {
-                    Button(action: model.addItem) {
+                    Button(action: addAndFocusItem) {
                         Image(systemName: "plus")
                     }
                     .buttonStyle(PlainButtonStyle())
@@ -235,10 +295,19 @@ struct ContentView: View {
     }
 }
 
+private struct OutlineFocusRequest: Equatable {
+    let token: UUID
+    let itemID: UUID
+    let caretOffset: Int
+}
+
 private struct OutlineEditorField: NSViewRepresentable {
+    let itemID: UUID
     @Binding var text: String
+    let focusRequest: OutlineFocusRequest?
     let onCommit: () -> Void
     let onDeleteEmpty: () -> Void
+    let onMoveVertical: (_ direction: Int, _ caretOffset: Int) -> Void
     let onIndent: () -> Void
     let onOutdent: () -> Void
     let onToggleStrike: () -> Void
@@ -251,6 +320,7 @@ private struct OutlineEditorField: NSViewRepresentable {
 
     func makeNSView(context: Context) -> NSTextField {
         let field = OutlineTextField()
+        field.identifier = NSUserInterfaceItemIdentifier(itemID.uuidString)
         field.placeholderString = "待办事项"
         field.isBordered = false
         field.drawsBackground = false
@@ -265,13 +335,14 @@ private struct OutlineEditorField: NSViewRepresentable {
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
+        field.identifier = NSUserInterfaceItemIdentifier(itemID.uuidString)
         (field as? OutlineTextField)?.onToggleStrike = onToggleStrike
         (field as? OutlineTextField)?.onBeginEditing = onBeginEditing
         (field as? OutlineTextField)?.onEndEditing = onEndEditing
-        guard field.currentEditor() == nil else { return }
-        if field.stringValue != text {
+        if field.currentEditor() == nil, field.stringValue != text {
             field.stringValue = text
         }
+        (field as? OutlineTextField)?.applyFocusRequest(focusRequest)
     }
 
     final class Coordinator: NSObject, NSTextFieldDelegate {
@@ -296,6 +367,12 @@ private struct OutlineEditorField: NSViewRepresentable {
             doCommandBy commandSelector: Selector
         ) -> Bool {
             switch commandSelector {
+            case #selector(NSResponder.moveUp(_:)) where !textView.hasMarkedText():
+                parent.onMoveVertical(-1, textView.selectedRange().location)
+                return true
+            case #selector(NSResponder.moveDown(_:)) where !textView.hasMarkedText():
+                parent.onMoveVertical(1, textView.selectedRange().location)
+                return true
             case #selector(NSResponder.deleteBackward(_:)) where textView.string.isEmpty:
                 DispatchQueue.main.async { self.parent.onDeleteEmpty() }
                 return true
@@ -319,6 +396,26 @@ private final class OutlineTextField: NSTextField {
     var onToggleStrike: (() -> Void)?
     var onBeginEditing: (() -> Void)?
     var onEndEditing: (() -> Void)?
+    private var pendingFocusRequest: OutlineFocusRequest?
+    private var appliedFocusToken: UUID?
+
+    func applyFocusRequest(_ request: OutlineFocusRequest?) {
+        pendingFocusRequest = request
+        guard let request = request,
+              request.itemID.uuidString == identifier?.rawValue,
+              appliedFocusToken != request.token else { return }
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self,
+                  self.pendingFocusRequest == request,
+                  let window = self.window,
+                  window.makeFirstResponder(self) else { return }
+            self.appliedFocusToken = request.token
+            self.scrollToVisible(self.bounds)
+            guard let editor = self.currentEditor() as? NSTextView else { return }
+            let location = min(request.caretOffset, editor.string.utf16.count)
+            editor.setSelectedRange(NSRange(location: location, length: 0))
+        }
+    }
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
