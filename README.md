@@ -37,6 +37,13 @@ With a full Xcode installation, the Swift Package can also be built with
 `swift build`. The repository scripts compile directly with `swiftc` so the
 self-use workflow works with Command Line Tools alone.
 
+## Outline keyboard interaction
+
+- `Return`: add a peer item;
+- `Tab` / `Shift-Tab`: indent or outdent the current item;
+- `Backspace`: edit text normally, then remove the row when it is already empty;
+- right-click: completion, hierarchy, row type, strikethrough, and delete actions.
+
 ## Notion setup
 
 Notion sync is optional. Create your own Notion token, grant it access only to

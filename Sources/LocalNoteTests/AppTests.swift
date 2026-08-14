@@ -123,9 +123,26 @@ private func allTextFields(in view: NSView) -> [NSTextField] {
     return current + view.subviews.flatMap(allTextFields)
 }
 
-private func allButtons(in view: NSView) -> [NSButton] {
-    let current = (view as? NSButton).map { [$0] } ?? []
-    return current + view.subviews.flatMap(allButtons)
+private func sendKey(
+    keyCode: UInt16,
+    characters: String,
+    modifiers: NSEvent.ModifierFlags = [],
+    to editor: NSTextView,
+    window: NSWindow
+) throws {
+    let event = try NSEvent.keyEvent(
+        with: .keyDown,
+        location: .zero,
+        modifierFlags: modifiers,
+        timestamp: ProcessInfo.processInfo.systemUptime,
+        windowNumber: window.windowNumber,
+        context: nil,
+        characters: characters,
+        charactersIgnoringModifiers: characters,
+        isARepeat: false,
+        keyCode: keyCode
+    ).unwrap("keyboard event should be created")
+    editor.interpretKeyEvents([event])
 }
 
 private func pasteboardSnapshot(_ pasteboard: NSPasteboard) -> [NSPasteboardItem] {
@@ -199,10 +216,12 @@ func appTests() -> [TestCase] {
             )
             window.close()
         },
-        TestCase("an empty outline row exposes a working delete button") {
+        TestCase("Backspace clears text before removing an empty outline row") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }
             fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("outline row should exist")
+            fixture.model.updateText(id: id, text: "x")
             let controller = NSHostingController(rootView: ContentView(model: fixture.model))
             let window = NSWindow(contentViewController: controller)
             window.setContentSize(NSSize(width: 440, height: 560))
@@ -210,12 +229,47 @@ func appTests() -> [TestCase] {
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
             controller.view.layoutSubtreeIfNeeded()
 
-            let deleteButton = try allButtons(in: controller.view)
-                .first(where: { $0.accessibilityLabel() == "删除事项" })
-                .unwrap("empty rows should expose an accessible delete button")
-            try expect(deleteButton.isEnabled && deleteButton.alphaValue > 0, "the empty-row delete button should be visible")
-            deleteButton.performClick(nil)
-            try expect(waitUntil { fixture.model.document.items.isEmpty }, "clicking delete should remove the empty row")
+            let field = try allTextFields(in: controller.view)
+                .first(where: { $0.placeholderString == "待办事项" })
+                .unwrap("outline text field should be rendered")
+            try expect(window.makeFirstResponder(field), "outline field should accept first responder")
+            let editor = try (window.firstResponder as? NSTextView).unwrap("field editor should become first responder")
+            try sendKey(keyCode: 51, characters: "\u{7f}", to: editor, window: window)
+            try expect(
+                waitUntil { fixture.model.document.items.count == 1 && fixture.model.document.items[0].text.isEmpty },
+                "the first Backspace should clear the final character without deleting the row"
+            )
+            try sendKey(keyCode: 51, characters: "\u{7f}", to: editor, window: window)
+            try expect(waitUntil { fixture.model.document.items.isEmpty }, "the next Backspace on the empty row should delete it")
+            window.close()
+        },
+        TestCase("Tab and Return follow outline-editor conventions") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.model.addItem()
+            let firstID = try fixture.model.document.items.first.map(\.id).unwrap("first row should exist")
+            fixture.model.updateText(id: firstID, text: "first")
+            fixture.model.addPeer(after: firstID)
+            let secondID = try fixture.model.document.items.last.map(\.id).unwrap("second row should exist")
+            fixture.model.updateText(id: secondID, text: "second")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let secondField = try allTextFields(in: controller.view)
+                .first(where: { $0.stringValue == "second" })
+                .unwrap("second outline field should be rendered")
+            try expect(window.makeFirstResponder(secondField), "second field should accept first responder")
+            let editor = try (window.firstResponder as? NSTextView).unwrap("second field editor should become first responder")
+
+            try sendKey(keyCode: 48, characters: "\t", to: editor, window: window)
+            try expect(waitUntil { fixture.model.document.items.last?.depth == 1 }, "Tab should indent the current row")
+            try sendKey(keyCode: 48, characters: "\u{19}", modifiers: [.shift], to: editor, window: window)
+            try expect(waitUntil { fixture.model.document.items.last?.depth == 0 }, "Shift-Tab should outdent the current row")
+            try sendKey(keyCode: 36, characters: "\r", to: editor, window: window)
+            try expect(waitUntil { fixture.model.document.items.count == 3 }, "Return should add a peer row")
             window.close()
         },
         TestCase("paste reaches both real Notion settings fields") {
