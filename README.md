@@ -39,6 +39,7 @@ self-use workflow works with Command Line Tools alone.
 
 ## Outline keyboard interaction
 
+- long items wrap to as many lines as needed and grow while editing;
 - `Up` / `Down`: move to the previous or next item;
 - `Return`: add and focus a peer item;
 - `Tab` / `Shift-Tab`: indent or outdent the current item;

@@ -76,12 +76,14 @@ makes its `NSTextField` the first responder. It dispatches `Command-V` and
 Backspace, Tab, Shift-Tab, and Return key events through the field editor. The
 tests verify that paste and strikethrough reach `AppModel`, vertical navigation
 moves focus without changing content, Return focuses its inserted row, and
-Backspace returns focus to the preceding row after deletion. A dedicated input
-method test keeps marked text, the marked range, and first-responder focus alive
-while save and sync states publish view updates. These checks prevent keyboard
-regressions that model-only tests cannot detect. Release acceptance also
-includes a manual pass through the real status-item popover using an isolated
-data directory.
+Backspace returns focus to the preceding row after deletion. Long-text coverage
+asserts that a row wraps without a line limit, expands both on initial render
+and during active editing, does not overlap the next row, and keeps the field
+editor focused. A dedicated input method test keeps marked text, the marked
+range, and first-responder focus alive while save and sync states publish view
+updates. These checks prevent keyboard and layout regressions that model-only
+tests cannot detect. Release acceptance also includes a manual pass through the
+real status-item popover using an isolated data directory.
 
 ## Performance and longevity
 

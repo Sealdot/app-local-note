@@ -125,13 +125,13 @@ struct ContentView: View {
                     },
                     onEndEditing: { model.endEditing(id: item.id) }
                 )
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
                 .opacity(item.isStruck ? 0.55 : 1)
                 if item.isStruck {
-                    Rectangle()
-                        .fill(Color.secondary.opacity(0.7))
-                        .frame(height: 1)
-                    .allowsHitTesting(false)
+                    WrappedStrikethrough()
+                        .stroke(Color.secondary.opacity(0.7), lineWidth: 1)
+                        .allowsHitTesting(false)
                 }
             }
         }
@@ -301,6 +301,22 @@ private struct OutlineFocusRequest: Equatable {
     let caretOffset: Int
 }
 
+private struct WrappedStrikethrough: Shape {
+    private let lineHeight = ceil(NSFont.systemFont(ofSize: NSFont.systemFontSize).boundingRectForFont.height)
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let lines = max(1, Int(round(rect.height / lineHeight)))
+        let topInset = max(0, (rect.height - CGFloat(lines) * lineHeight) / 2)
+        for line in 0..<lines {
+            let y = topInset + (CGFloat(line) + 0.52) * lineHeight
+            path.move(to: CGPoint(x: rect.minX, y: y))
+            path.addLine(to: CGPoint(x: rect.maxX, y: y))
+        }
+        return path
+    }
+}
+
 private struct OutlineEditorField: NSViewRepresentable {
     let itemID: UUID
     @Binding var text: String
@@ -325,6 +341,11 @@ private struct OutlineEditorField: NSViewRepresentable {
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
+        field.usesSingleLineMode = false
+        field.maximumNumberOfLines = 0
+        field.lineBreakMode = .byWordWrapping
+        field.cell?.wraps = true
+        field.cell?.isScrollable = false
         field.delegate = context.coordinator
         field.onToggleStrike = onToggleStrike
         field.onBeginEditing = onBeginEditing
@@ -341,6 +362,7 @@ private struct OutlineEditorField: NSViewRepresentable {
         (field as? OutlineTextField)?.onEndEditing = onEndEditing
         if field.currentEditor() == nil, field.stringValue != text {
             field.stringValue = text
+            (field as? OutlineTextField)?.invalidateWrappingHeight()
         }
         (field as? OutlineTextField)?.applyFocusRequest(focusRequest)
     }
@@ -359,6 +381,7 @@ private struct OutlineEditorField: NSViewRepresentable {
             }
             guard parent.text != field.stringValue else { return }
             parent.text = field.stringValue
+            (field as? OutlineTextField)?.invalidateWrappingHeight()
         }
 
         func control(
@@ -398,6 +421,39 @@ private final class OutlineTextField: NSTextField {
     var onEndEditing: (() -> Void)?
     private var pendingFocusRequest: OutlineFocusRequest?
     private var appliedFocusToken: UUID?
+    private var measuredWidth: CGFloat = 0
+
+    override var intrinsicContentSize: NSSize {
+        guard let cell = cell else { return super.intrinsicContentSize }
+        let width = bounds.width > 0 ? bounds.width : super.intrinsicContentSize.width
+        guard width > 0 else { return super.intrinsicContentSize }
+        let fittingBounds = NSRect(
+            x: 0,
+            y: 0,
+            width: width,
+            height: CGFloat.greatestFiniteMagnitude
+        )
+        let measured = cell.cellSize(forBounds: fittingBounds)
+        let oneLineHeight = ceil(font?.boundingRectForFont.height ?? super.intrinsicContentSize.height)
+        return NSSize(
+            width: NSView.noIntrinsicMetric,
+            height: max(oneLineHeight, ceil(measured.height))
+        )
+    }
+
+    override func layout() {
+        super.layout()
+        if abs(bounds.width - measuredWidth) > 0.5 {
+            measuredWidth = bounds.width
+            invalidateWrappingHeight()
+        }
+    }
+
+    func invalidateWrappingHeight() {
+        invalidateIntrinsicContentSize()
+        needsLayout = true
+        superview?.needsLayout = true
+    }
 
     func applyFocusRequest(_ request: OutlineFocusRequest?) {
         pendingFocusRequest = request

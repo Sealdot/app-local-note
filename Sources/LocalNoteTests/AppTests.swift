@@ -276,6 +276,74 @@ func appTests() -> [TestCase] {
             )
             window.close()
         },
+        TestCase("long outline text wraps and grows without overlapping the next row") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let longID = try fixture.model.addItem().unwrap("long row should be added")
+            fixture.model.updateText(
+                id: longID,
+                text: "进线中 B 端，用户存在主动挂断的情况：output 有 to_manual 但后续仍有较长的补充说明，需要完整自动换行展示"
+            )
+            let nextID = try fixture.model.addPeer(after: longID).unwrap("next row should be added")
+            fixture.model.updateText(id: nextID, text: "其他事项")
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let fields = allTextFields(in: controller.view)
+            let longField = try fields
+                .first(where: { $0.identifier?.rawValue == longID.uuidString })
+                .unwrap("long field should be rendered")
+            let nextField = try fields
+                .first(where: { $0.identifier?.rawValue == nextID.uuidString })
+                .unwrap("next field should be rendered")
+            let longRect = longField.convert(longField.bounds, to: controller.view)
+            let nextRect = nextField.convert(nextField.bounds, to: controller.view)
+
+            try expect(!longField.usesSingleLineMode, "outline fields must allow automatic wrapping")
+            try expect(longField.maximumNumberOfLines == 0, "outline fields must not truncate wrapped lines")
+            try expect(
+                longRect.height > nextRect.height * 1.5,
+                "a wrapped item should grow beyond a one-line item (long=\(longRect.height), short=\(nextRect.height))"
+            )
+            try expect(
+                longRect.maxY <= nextRect.minY + 1 || nextRect.maxY <= longRect.minY + 1,
+                "a wrapped item must not overlap the following row (long=\(longRect), next=\(nextRect))"
+            )
+            try expect(window.makeFirstResponder(longField), "long field should remain editable")
+            let editor = try (longField.currentEditor() as? NSTextView).unwrap("long field editor should be active")
+            try expect(!editor.isHorizontallyResizable, "the active field editor must wrap instead of scrolling sideways")
+            try expect(
+                editor.textContainer?.widthTracksTextView == true,
+                "the active field editor must wrap at the visible row width"
+            )
+            let initialHeight = longField.bounds.height
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+            editor.insertText(
+                "；继续补充一段足够长的输入内容，验证编辑过程中高度可以实时增长，而且不会让光标离开当前事项",
+                replacementRange: editor.selectedRange()
+            )
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return longField.bounds.height > initialHeight + 5
+                        && fixture.model.document.items.first?.text == editor.string
+                },
+                "typing past the current line count should grow the active row and update the model"
+            )
+            try expect(longField.currentEditor() === editor, "growing a row must preserve the active editor")
+            let grownRect = longField.convert(longField.bounds, to: controller.view)
+            let movedNextRect = nextField.convert(nextField.bounds, to: controller.view)
+            try expect(
+                grownRect.maxY <= movedNextRect.minY + 1 || movedNextRect.maxY <= grownRect.minY + 1,
+                "a row that grows while editing must keep the following row outside its bounds"
+            )
+            window.close()
+        },
         TestCase("Up and Down move focus between outline rows") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }
