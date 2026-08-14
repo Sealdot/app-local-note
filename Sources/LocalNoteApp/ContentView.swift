@@ -104,7 +104,9 @@ struct ContentView: View {
                     onDeleteEmpty: { model.delete(id: item.id) },
                     onIndent: { model.indent(id: item.id) },
                     onOutdent: { model.outdent(id: item.id) },
-                    onToggleStrike: { model.toggleStrike(id: item.id) }
+                    onToggleStrike: { model.toggleStrike(id: item.id) },
+                    onBeginEditing: { model.beginEditing(id: item.id) },
+                    onEndEditing: { model.endEditing(id: item.id) }
                 )
                 .frame(maxWidth: .infinity)
                 .opacity(item.isStruck ? 0.55 : 1)
@@ -240,6 +242,8 @@ private struct OutlineEditorField: NSViewRepresentable {
     let onIndent: () -> Void
     let onOutdent: () -> Void
     let onToggleStrike: () -> Void
+    let onBeginEditing: () -> Void
+    let onEndEditing: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -253,6 +257,8 @@ private struct OutlineEditorField: NSViewRepresentable {
         field.focusRingType = .none
         field.delegate = context.coordinator
         field.onToggleStrike = onToggleStrike
+        field.onBeginEditing = onBeginEditing
+        field.onEndEditing = onEndEditing
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
@@ -260,6 +266,9 @@ private struct OutlineEditorField: NSViewRepresentable {
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
         (field as? OutlineTextField)?.onToggleStrike = onToggleStrike
+        (field as? OutlineTextField)?.onBeginEditing = onBeginEditing
+        (field as? OutlineTextField)?.onEndEditing = onEndEditing
+        guard field.currentEditor() == nil else { return }
         if field.stringValue != text {
             field.stringValue = text
         }
@@ -273,8 +282,11 @@ private struct OutlineEditorField: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField,
-                  parent.text != field.stringValue else { return }
+            guard let field = notification.object as? NSTextField else { return }
+            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
+                return
+            }
+            guard parent.text != field.stringValue else { return }
             parent.text = field.stringValue
         }
 
@@ -305,19 +317,26 @@ private struct OutlineEditorField: NSViewRepresentable {
 
 private final class OutlineTextField: NSTextField {
     var onToggleStrike: (() -> Void)?
+    var onBeginEditing: (() -> Void)?
+    var onEndEditing: (() -> Void)?
 
     override func becomeFirstResponder() -> Bool {
         let accepted = super.becomeFirstResponder()
-        if accepted { OutlineCommandRouter.shared.didBeginEditing(self) }
+        if accepted {
+            OutlineCommandRouter.shared.didBeginEditing(self)
+            onBeginEditing?()
+        }
         return accepted
     }
 
     override func textDidBeginEditing(_ notification: Notification) {
         super.textDidBeginEditing(notification)
         OutlineCommandRouter.shared.didBeginEditing(self)
+        onBeginEditing?()
     }
 
     override func textDidEndEditing(_ notification: Notification) {
+        onEndEditing?()
         OutlineCommandRouter.shared.didEndEditing(self)
         super.textDidEndEditing(notification)
     }

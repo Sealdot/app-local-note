@@ -33,6 +33,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         model.flushSave()
     }
 
+    func popoverDidClose(_ notification: Notification) {
+        model.endEditingSession()
+    }
+
     @objc private func togglePopover(_ sender: Any?) {
         if popover.isShown {
             popover.performClose(sender)

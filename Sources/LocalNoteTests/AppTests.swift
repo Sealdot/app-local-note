@@ -276,6 +276,58 @@ func appTests() -> [TestCase] {
             )
             window.close()
         },
+        TestCase("save and sync status updates preserve marked text input") {
+            let transport = DelayedTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("outline row should exist")
+            fixture.model.updateText(id: id, text: "安排")
+            fixture.model.flushSave()
+            let key = fixture.model.dateKey
+            try fixture.snapshotStore.save(SyncSnapshot(dateKey: key, baseMarkdown: "- [ ] 安排"))
+            fixture.model.syncNow()
+            try expect(transport.requests.count == 1, "sync should be in flight before editing starts")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let field = try allTextFields(in: controller.view)
+                .first(where: { $0.stringValue == "安排" })
+                .unwrap("outline text field should be rendered")
+            try expect(window.makeFirstResponder(field), "outline field should accept first responder")
+            let editor = try (window.firstResponder as? NSTextView).unwrap("field editor should become first responder")
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+            editor.setMarkedText(
+                "xia'wu",
+                selectedRange: NSRange(location: 6, length: 0),
+                replacementRange: NSRange(location: NSNotFound, length: 0)
+            )
+            let composingText = editor.string
+            let composingRange = editor.markedRange()
+            try expect(editor.hasMarkedText(), "fixture should contain an active input-method composition")
+            try expect(
+                fixture.model.document.items.first?.text == "安排",
+                "marked text should not be persisted before the input method commits it"
+            )
+
+            fixture.model.toggleCompletion(id: id)
+            try transport.succeedNext(markdown: "\(DateKey.compact(key))\n\t- [ ] 安排\n<empty-block/>")
+            RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            controller.view.layoutSubtreeIfNeeded()
+            try expect(window.firstResponder === editor, "sync status changes must not move keyboard focus")
+            try expect(editor.hasMarkedText(), "sync status changes must preserve marked text")
+            try expect(editor.string == composingText, "sync status changes must not rewrite the active editor")
+            try expect(editor.markedRange() == composingRange, "sync status changes must preserve the composition range")
+            window.close()
+        },
         TestCase("Backspace clears text before removing an empty outline row") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -648,9 +700,78 @@ func appTests() -> [TestCase] {
             fixture.model.updateText(id: id, text: "newer edit")
             fixture.model.syncNow(queueIfBusy: true)
             try transport.succeedNext(markdown: "")
-            try expect(transport.requests.count == 2, "first sync should issue its PATCH")
+            try expect(waitUntil { transport.requests.count == 2 }, "first sync should issue its PATCH")
             try transport.succeedNext(markdown: "")
             try expect(waitUntil { transport.requests.count == 3 }, "pending edit should start another retrieve")
+        },
+        TestCase("a remote pull cannot overwrite an edit made during the request") {
+            let transport = DelayedTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("local row should exist")
+            fixture.model.updateText(id: id, text: "base")
+            fixture.model.flushSave()
+            let key = fixture.model.dateKey
+            try fixture.snapshotStore.save(SyncSnapshot(dateKey: key, baseMarkdown: "- [ ] base"))
+
+            fixture.model.syncNow()
+            try expect(transport.requests.count == 1, "retrieve should be waiting")
+            fixture.model.updateText(id: id, text: "正在输入")
+            try transport.succeedNext(
+                markdown: "\(DateKey.compact(key))\n\t- [ ] remote edit\n<empty-block/>"
+            )
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            try expect(
+                fixture.model.document.items.first?.text == "正在输入",
+                "the response must not replace a newer local edit"
+            )
+        },
+        TestCase("a remote pull waits until the active editor resigns") {
+            let transport = DelayedTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("local row should exist")
+            fixture.model.updateText(id: id, text: "base")
+            fixture.model.flushSave()
+            let key = fixture.model.dateKey
+            try fixture.snapshotStore.save(SyncSnapshot(dateKey: key, baseMarkdown: "- [ ] base"))
+            let remotePage = "\(DateKey.compact(key))\n\t- [ ] remote edit\n<empty-block/>"
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let field = try allTextFields(in: controller.view)
+                .first(where: { $0.stringValue == "base" })
+                .unwrap("outline text field should be rendered")
+            try expect(window.makeFirstResponder(field), "outline field should accept first responder")
+            let editor = try (window.firstResponder as? NSTextView).unwrap("field editor should become first responder")
+
+            fixture.model.syncNow()
+            try transport.succeedNext(markdown: remotePage)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            try expect(window.firstResponder === editor, "a deferred pull must preserve editor focus")
+            try expect(fixture.model.document.items.first?.text == "base", "a focused row must not be replaced")
+
+            try expect(window.makeFirstResponder(nil), "the field editor should be able to resign")
+            fixture.model.syncNow()
+            try expect(waitUntil { transport.requests.count == 2 }, "sync should retry after editing ends")
+            try transport.succeedNext(markdown: remotePage)
+            try expect(waitUntil { fixture.model.syncState == .synced }, "the deferred pull should finish")
+            try expect(fixture.model.document.items.first?.text == "remote edit", "remote content should apply after editing")
+            window.close()
         }
     ]
 }

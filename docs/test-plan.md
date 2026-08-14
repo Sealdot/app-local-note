@@ -56,6 +56,7 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - choosing Notion resolves a conflict without PATCH;
 - choosing local re-fetches the page before one guarded PATCH;
 - duplicate passive triggers do not queue redundant synchronization;
+- an in-flight remote pull never replaces a newer local edit;
 - requests time out instead of leaving the UI in a permanent syncing state;
 - 401, 403, 404, 409, 429, and transient 5xx responses map to actionable states;
 - authorization headers are present in requests but absent from logs.
@@ -74,10 +75,12 @@ makes its `NSTextField` the first responder. It dispatches `Command-V` and
 `Command-Shift-S` through the application Edit menu, then sends real Backspace,
 Tab, Shift-Tab, and Return key events through the field editor. The tests verify
 that paste and strikethrough reach `AppModel`, text is removed before an empty
-row is deleted, hierarchy changes, and peer insertion works. These checks
-prevent keyboard regressions that model-only tests cannot detect. Release
-acceptance also includes a manual pass through the real status-item popover
-using an isolated data directory.
+row is deleted, hierarchy changes, and peer insertion works. A dedicated input
+method test keeps marked text, the marked range, and first-responder focus alive
+while save and sync states publish view updates. These checks prevent keyboard
+regressions that model-only tests cannot detect. Release acceptance also
+includes a manual pass through the real status-item popover using an isolated
+data directory.
 
 ## Performance and longevity
 

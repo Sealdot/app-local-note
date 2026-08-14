@@ -46,6 +46,9 @@ final class AppModel: ObservableObject {
     private var syncWorkItem: DispatchWorkItem?
     private var syncInFlight = false
     private var syncRequestedWhileInFlight = false
+    private var documentRevision: UInt64 = 0
+    private var activeEditingItemID: UUID?
+    private var syncDeferredUntilEditingEnds = false
     private let networkMonitor: NWPathMonitor?
     private var networkWasAvailable = false
 
@@ -120,6 +123,26 @@ final class AppModel: ObservableObject {
 
     func updateText(id: UUID, text: String) {
         mutate { OutlineEditor.updateText(in: &$0, id: id, text: text) }
+    }
+
+    func beginEditing(id: UUID) {
+        guard activeEditingItemID != id else { return }
+        activeEditingItemID = id
+        documentRevision &+= 1
+        if syncInFlight { syncDeferredUntilEditingEnds = true }
+    }
+
+    func endEditing(id: UUID) {
+        guard activeEditingItemID == id else { return }
+        endEditingSession()
+    }
+
+    func endEditingSession() {
+        activeEditingItemID = nil
+        if syncDeferredUntilEditingEnds {
+            syncDeferredUntilEditingEnds = false
+            scheduleSync()
+        }
     }
 
     func toggleCompletion(id: UUID) {
@@ -200,6 +223,7 @@ final class AppModel: ObservableObject {
         syncInFlight = true
         syncState = .syncing
         let currentDateKey = dateKey
+        let currentDocumentRevision = documentRevision
         let localDocument = document
         let localMarkdown = MarkdownCodec.encode(localDocument)
         let storedBase = snapshotStore.load(dateKey: currentDateKey)?.baseMarkdown ?? ""
@@ -213,39 +237,25 @@ final class AppModel: ObservableObject {
             case let .success(fullPage):
                 let remoteDay = WorkLogMarkdown.section(in: fullPage, dateKey: currentDateKey)
                 let remoteMarkdown = self.canonicalMarkdown(remoteDay, dateKey: currentDateKey)
-                switch SyncPlanner.decide(base: base, local: localMarkdown, remote: remoteMarkdown) {
-                case .noChange:
-                    self.persistSnapshot(dateKey: currentDateKey, markdown: localMarkdown)
-                    self.finishSync(state: .synced)
-                case .pull:
-                    let pulled = MarkdownCodec.decode(remoteMarkdown, dateKey: currentDateKey)
-                    do {
-                        try self.dayStore.save(pulled)
-                        self.persistSnapshot(dateKey: currentDateKey, markdown: remoteMarkdown)
-                        DispatchQueue.main.async {
-                            if self.dateKey == currentDateKey { self.document = pulled }
-                            self.finishSync(state: .synced)
+                let decision = SyncPlanner.decide(base: base, local: localMarkdown, remote: remoteMarkdown)
+                DispatchQueue.main.async {
+                    guard self.dateKey == currentDateKey,
+                          self.documentRevision == currentDocumentRevision else {
+                        if self.activeEditingItemID != nil {
+                            self.syncDeferredUntilEditingEnds = true
                         }
-                    } catch {
-                        self.finishSync(state: .error("同步内容无法保存到本地"))
+                        self.finishSync(state: .idle)
+                        return
                     }
-                case .conflict:
-                    self.finishSync(state: .conflict)
-                case .push:
-                    let updatedPage = WorkLogMarkdown.replacingSection(
-                        in: fullPage,
+                    self.applySyncDecision(
+                        decision,
+                        pageID: pageID,
+                        token: token,
                         dateKey: currentDateKey,
-                        body: localMarkdown
+                        localMarkdown: localMarkdown,
+                        remoteMarkdown: remoteMarkdown,
+                        fullPage: fullPage
                     )
-                    self.notionClient.replacePageMarkdown(pageID: pageID, token: token, markdown: updatedPage) { replaceResult in
-                        switch replaceResult {
-                        case let .failure(error):
-                            self.finishSync(state: .error(error.description))
-                        case .success:
-                            self.persistSnapshot(dateKey: currentDateKey, markdown: localMarkdown)
-                            self.finishSync(state: .synced)
-                        }
-                    }
                 }
             }
         }
@@ -266,7 +276,10 @@ final class AppModel: ObservableObject {
                     try self.dayStore.save(pulled)
                     self.persistSnapshot(dateKey: context.dateKey, markdown: remoteMarkdown)
                     DispatchQueue.main.async {
-                        if self.dateKey == context.dateKey { self.document = pulled }
+                        if self.dateKey == context.dateKey {
+                            self.document = pulled
+                            self.documentRevision &+= 1
+                        }
                         self.finishSync(state: .synced)
                     }
                 } catch {
@@ -341,6 +354,7 @@ final class AppModel: ObservableObject {
         var updated = document
         mutation(&updated)
         document = updated
+        documentRevision &+= 1
         scheduleSave()
         scheduleSync()
     }
@@ -363,6 +377,8 @@ final class AppModel: ObservableObject {
 
     private func load(dateKey: String) {
         self.dateKey = dateKey
+        documentRevision &+= 1
+        activeEditingItemID = nil
         do {
             document = try dayStore.load(dateKey: dateKey)
             syncState = notionPageID.isEmpty || notionToken.isEmpty ? .notConfigured : .idle
@@ -394,6 +410,60 @@ final class AppModel: ObservableObject {
 
     private func canonicalMarkdown(_ markdown: String, dateKey: String) -> String {
         MarkdownCodec.encode(MarkdownCodec.decode(markdown, dateKey: dateKey))
+    }
+
+    private func applySyncDecision(
+        _ decision: SyncDecision,
+        pageID: String,
+        token: String,
+        dateKey: String,
+        localMarkdown: String,
+        remoteMarkdown: String,
+        fullPage: String
+    ) {
+        switch decision {
+        case .noChange:
+            persistSnapshot(dateKey: dateKey, markdown: localMarkdown)
+            finishSync(state: .synced)
+        case .pull:
+            guard activeEditingItemID == nil else {
+                syncDeferredUntilEditingEnds = true
+                finishSync(state: .idle)
+                return
+            }
+            let pulled = MarkdownCodec.decode(remoteMarkdown, dateKey: dateKey)
+            do {
+                try dayStore.save(pulled)
+                persistSnapshot(dateKey: dateKey, markdown: remoteMarkdown)
+                document = pulled
+                documentRevision &+= 1
+                finishSync(state: .synced)
+            } catch {
+                finishSync(state: .error("同步内容无法保存到本地"))
+            }
+        case .conflict:
+            finishSync(state: .conflict)
+        case .push:
+            let updatedPage = WorkLogMarkdown.replacingSection(
+                in: fullPage,
+                dateKey: dateKey,
+                body: localMarkdown
+            )
+            notionClient.replacePageMarkdown(
+                pageID: pageID,
+                token: token,
+                markdown: updatedPage
+            ) { [weak self] replaceResult in
+                guard let self = self else { return }
+                switch replaceResult {
+                case let .failure(error):
+                    self.finishSync(state: .error(error.description))
+                case .success:
+                    self.persistSnapshot(dateKey: dateKey, markdown: localMarkdown)
+                    self.finishSync(state: .synced)
+                }
+            }
+        }
     }
 
     private func finishSync(state: AppSyncState) {
