@@ -103,7 +103,8 @@ struct ContentView: View {
                     onCommit: { model.addPeer(after: item.id) },
                     onDeleteEmpty: { model.delete(id: item.id) },
                     onIndent: { model.indent(id: item.id) },
-                    onOutdent: { model.outdent(id: item.id) }
+                    onOutdent: { model.outdent(id: item.id) },
+                    onToggleStrike: { model.toggleStrike(id: item.id) }
                 )
                 .frame(maxWidth: .infinity)
                 .opacity(item.isStruck ? 0.55 : 1)
@@ -117,7 +118,7 @@ struct ContentView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .help("空白事项按 Backspace 删除；右键打开更多操作")
+        .help("⌘⇧S 切换划线；空白事项按 Backspace 删除；右键打开更多操作")
         .contextMenu {
             Button("增加层级") { model.indent(id: item.id) }
             Button("减少层级") { model.outdent(id: item.id) }
@@ -238,24 +239,27 @@ private struct OutlineEditorField: NSViewRepresentable {
     let onDeleteEmpty: () -> Void
     let onIndent: () -> Void
     let onOutdent: () -> Void
+    let onToggleStrike: () -> Void
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
 
     func makeNSView(context: Context) -> NSTextField {
-        let field = NSTextField()
+        let field = OutlineTextField()
         field.placeholderString = "待办事项"
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
         field.delegate = context.coordinator
+        field.onToggleStrike = onToggleStrike
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
 
     func updateNSView(_ field: NSTextField, context: Context) {
         context.coordinator.parent = self
+        (field as? OutlineTextField)?.onToggleStrike = onToggleStrike
         if field.stringValue != text {
             field.stringValue = text
         }
@@ -296,5 +300,29 @@ private struct OutlineEditorField: NSViewRepresentable {
                 return false
             }
         }
+    }
+}
+
+private final class OutlineTextField: NSTextField {
+    var onToggleStrike: (() -> Void)?
+
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { OutlineCommandRouter.shared.didBeginEditing(self) }
+        return accepted
+    }
+
+    override func textDidBeginEditing(_ notification: Notification) {
+        super.textDidBeginEditing(notification)
+        OutlineCommandRouter.shared.didBeginEditing(self)
+    }
+
+    override func textDidEndEditing(_ notification: Notification) {
+        OutlineCommandRouter.shared.didEndEditing(self)
+        super.textDidEndEditing(notification)
+    }
+
+    @objc func toggleLocalNoteStrikethrough(_ sender: Any?) {
+        onToggleStrike?()
     }
 }

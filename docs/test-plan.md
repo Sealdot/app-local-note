@@ -70,13 +70,14 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 ## UI regression coverage
 
 The test executable renders the real SwiftUI outline in an AppKit window and
-makes its `NSTextField` the first responder. It dispatches `Command-V` through
-the application Edit menu, then sends real Backspace, Tab, Shift-Tab, and
-Return key events through the field editor. The tests verify that paste reaches
-`AppModel`, text is removed before an empty row is deleted, hierarchy changes,
-and peer insertion works. These checks prevent keyboard regressions that
-model-only tests cannot detect. Release acceptance also includes a manual pass
-through the real status-item popover using an isolated data directory.
+makes its `NSTextField` the first responder. It dispatches `Command-V` and
+`Command-Shift-S` through the application Edit menu, then sends real Backspace,
+Tab, Shift-Tab, and Return key events through the field editor. The tests verify
+that paste and strikethrough reach `AppModel`, text is removed before an empty
+row is deleted, hierarchy changes, and peer insertion works. These checks
+prevent keyboard regressions that model-only tests cannot detect. Release
+acceptance also includes a manual pass through the real status-item popover
+using an isolated data directory.
 
 ## Performance and longevity
 

@@ -41,6 +41,7 @@ self-use workflow works with Command Line Tools alone.
 
 - `Return`: add a peer item;
 - `Tab` / `Shift-Tab`: indent or outdent the current item;
+- `Command-Shift-S`: toggle strikethrough for the current item;
 - `Backspace`: edit text normally, then remove the row when it is already empty;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.
 

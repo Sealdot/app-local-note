@@ -174,6 +174,18 @@ func appTests() -> [TestCase] {
             try expect(action(for: "a") == #selector(NSText.selectAll(_:)), "Command-A must route to the text responder")
             try expect(action(for: "x") == #selector(NSText.cut(_:)), "Command-X must route to the text responder")
             try expect(action(for: "c") == #selector(NSText.copy(_:)), "Command-C must route to the text responder")
+            let strikeItem = try editMenu.items
+                .first(where: { $0.title == "切换划线" })
+                .unwrap("strikethrough menu item should exist")
+            try expect(
+                strikeItem.action == #selector(OutlineCommandRouter.toggleLocalNoteStrikethrough(_:)),
+                "Command-Shift-S must route to the outline responder"
+            )
+            try expect(strikeItem.keyEquivalent == "s", "strikethrough shortcut should use S")
+            try expect(
+                strikeItem.keyEquivalentModifierMask == [.command, .shift],
+                "strikethrough shortcut should use Command-Shift"
+            )
         },
         TestCase("Command-V reaches a real SwiftUI outline field") {
             let fixture = try appFixture()
@@ -213,6 +225,54 @@ func appTests() -> [TestCase] {
             try expect(
                 modelValue == "快捷键粘贴",
                 "paste should update the AppModel binding (editor='\(editorValue)', field='\(field.stringValue)', model='\(modelValue)')"
+            )
+            window.close()
+        },
+        TestCase("Command-Shift-S toggles the focused outline row") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            fixture.model.addItem()
+            let id = try fixture.model.document.items.first.map(\.id).unwrap("outline row should exist")
+            fixture.model.updateText(id: id, text: "toggle strike")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let field = try allTextFields(in: controller.view)
+                .first(where: { $0.stringValue == "toggle strike" })
+                .unwrap("outline text field should be rendered")
+            try expect(window.makeFirstResponder(field), "outline field should accept first responder")
+            try expect(window.firstResponder is NSTextView, "outline field editor should become first responder")
+            try expect(field.currentEditor() === window.firstResponder, "outline field should own the active field editor")
+            try expect(
+                field.responds(to: #selector(OutlineCommandRouter.toggleLocalNoteStrikethrough(_:))),
+                "outline field should expose the strikethrough responder action"
+            )
+
+            let menu = ApplicationMenu.make()
+            NSApplication.shared.mainMenu = menu
+            let strikeItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.title == "切换划线" })
+                .unwrap("strikethrough menu item should exist")
+            try expect(
+                NSApplication.shared.sendAction(strikeItem.action!, to: strikeItem.target, from: strikeItem),
+                "strikethrough action should reach the focused outline field"
+            )
+            try expect(
+                waitUntil { fixture.model.document.items.first?.manualStrikethrough == true },
+                "the focused row should become struck"
+            )
+            try expect(
+                NSApplication.shared.sendAction(strikeItem.action!, to: strikeItem.target, from: strikeItem),
+                "strikethrough action should remain available after toggling"
+            )
+            try expect(
+                waitUntil { fixture.model.document.items.first?.manualStrikethrough == false },
+                "pressing the shortcut again should remove strikethrough"
             )
             window.close()
         },
