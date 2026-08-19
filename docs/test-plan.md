@@ -26,6 +26,11 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - completing a checkbox also strikes the row; unchecking preserves explicit
   user strike intent correctly;
 - decoding older files tolerates missing optional fields.
+- typing `1. ` on an empty checkbox row converts it to a numbered item without
+  leaving the marker in its text;
+- Return preserves numbered style and advances the visible prefix, while
+  Backspace on an empty numbered row returns it to a checkbox without deletion;
+- numbered sequences restart after a non-numbered peer at the same depth.
 
 ### Persistence
 

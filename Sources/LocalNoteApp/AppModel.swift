@@ -175,6 +175,13 @@ final class AppModel: ObservableObject {
         mutate { OutlineEditor.changeKind(in: &$0, id: id, kind: kind) }
     }
 
+    func applyTypingShortcut(id: UUID, kind: OutlineItemKind) {
+        mutate { document in
+            OutlineEditor.updateText(in: &document, id: id, text: "")
+            OutlineEditor.changeKind(in: &document, id: id, kind: kind)
+        }
+    }
+
     func navigate(days: Int) {
         flushSave()
         guard let next = DateKey.adding(days: days, to: dateKey) else { return }
@@ -365,7 +372,10 @@ final class AppModel: ObservableObject {
             if index > 0 {
                 for previous in document.items[..<index].reversed() {
                     if previous.depth < item.depth { break }
-                    if previous.depth == item.depth && previous.kind == .numbered { number += 1 }
+                    if previous.depth == item.depth {
+                        guard previous.kind == .numbered else { break }
+                        number += 1
+                    }
                 }
             }
             if item.depth == 2 { return alphabetic(number) + "." }

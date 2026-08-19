@@ -104,6 +104,18 @@ public struct DayActivitySummary: Equatable {
     }
 }
 
+public enum OutlineTypingShortcut {
+    /// Recognizes the marker typed at the beginning of an empty outline row.
+    /// The trailing space is intentional: it lets users enter a literal number
+    /// and period without unexpectedly changing the row type.
+    public static func kind(for text: String) -> OutlineItemKind? {
+        guard text.last == " " else { return nil }
+        let marker = text.dropLast()
+        guard marker.count >= 2, marker.last == "." || marker.last == ")" else { return nil }
+        return Int(marker.dropLast()) == nil ? nil : .numbered
+    }
+}
+
 public enum OutlineEditor {
     public static func append(
         to document: inout DayDocument,

@@ -537,6 +537,72 @@ func appTests() -> [TestCase] {
             )
             window.close()
         },
+        TestCase("number shortcut creates a continuing numbered structure") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let firstID = try fixture.model.addItem().unwrap("first row should be added")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let firstField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == firstID.uuidString })
+                .unwrap("first outline field should be rendered")
+            try expect(window.makeFirstResponder(firstField), "first field should accept focus")
+            let firstEditor = try (window.firstResponder as? NSTextView).unwrap("first editor should be active")
+
+            try sendKey(keyCode: 18, characters: "1", to: firstEditor, window: window)
+            try sendKey(keyCode: 47, characters: ".", to: firstEditor, window: window)
+            try sendKey(keyCode: 49, characters: " ", to: firstEditor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.first?.kind == .numbered
+                        && fixture.model.document.items.first?.text.isEmpty == true
+                        && firstEditor.string.isEmpty
+                },
+                "typing 1. and space should convert the live row without leaving marker text"
+            )
+            try expect(firstField.currentEditor() === firstEditor, "shortcut conversion should preserve keyboard focus")
+
+            try sendKey(keyCode: 0, characters: "first", to: firstEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items.first?.text == "first" }, "numbered row text should persist")
+            try sendKey(keyCode: 36, characters: "\r", to: firstEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items.count == 2 }, "Return should add the next numbered row")
+            let secondID = try fixture.model.document.items.last.map(\.id).unwrap("second numbered row should exist")
+            try expect(fixture.model.document.items.last?.kind == .numbered, "the peer should preserve numbered style")
+            try expect(fixture.model.displayPrefix(for: fixture.model.document.items[0]) == "1.", "the first row should display 1.")
+            try expect(fixture.model.displayPrefix(for: fixture.model.document.items[1]) == "2.", "the peer should display 2.")
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .contains(where: { $0.identifier?.rawValue == secondID.uuidString && $0.currentEditor() != nil })
+                },
+                "Return should focus the second numbered row"
+            )
+            let resolvedSecondField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == secondID.uuidString })
+                .unwrap("second outline field should be rendered")
+            let secondEditor = try (resolvedSecondField.currentEditor() as? NSTextView).unwrap("second editor should be active")
+
+            try sendKey(keyCode: 51, characters: "\u{7f}", to: secondEditor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.count == 2
+                        && fixture.model.document.items.last?.kind == .checkbox
+                },
+                "Backspace on an empty numbered row should return it to a normal to-do instead of deleting it"
+            )
+            try expect(resolvedSecondField.currentEditor() != nil, "returning to a to-do should preserve focus")
+
+            let thirdID = try fixture.model.addPeer(after: secondID).unwrap("third row should be added")
+            fixture.model.changeKind(id: thirdID, kind: .numbered)
+            let third = try fixture.model.document.items.first(where: { $0.id == thirdID }).unwrap("third row should exist")
+            try expect(fixture.model.displayPrefix(for: third) == "1.", "a numbered sequence should restart after a checkbox peer")
+            window.close()
+        },
         TestCase("paste reaches both real Notion settings fields") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }

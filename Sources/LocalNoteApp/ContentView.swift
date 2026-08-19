@@ -285,10 +285,15 @@ struct ContentView: View {
             ZStack {
                 OutlineEditorField(
                     itemID: item.id,
+                    kind: item.kind,
                     text: model.itemBinding(id: item.id),
                     focusRequest: focusRequest,
                     onCommit: { addPeerAndFocus(after: item.id) },
                     onDeleteEmpty: { deleteAndFocus(item.id) },
+                    onExitStructuredItem: { model.changeKind(id: item.id, kind: .checkbox) },
+                    onApplyTypingShortcut: { kind in
+                        model.applyTypingShortcut(id: item.id, kind: kind)
+                    },
                     onMoveVertical: { direction, caretOffset in
                         moveFocus(from: item.id, direction: direction, caretOffset: caretOffset)
                     },
@@ -313,7 +318,7 @@ struct ContentView: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .help("↑↓ 切换事项；Return 新增；⌘⇧S 划线；空行 Backspace 删除")
+        .help("输入 1. 加空格创建编号；Return 延续；Shift-Tab 减少层级；空编号 Backspace 返回待办")
         .contextMenu {
             Button("增加层级") { model.indent(id: item.id) }
             Button("减少层级") { model.outdent(id: item.id) }
@@ -497,10 +502,13 @@ private struct WrappedStrikethrough: Shape {
 
 private struct OutlineEditorField: NSViewRepresentable {
     let itemID: UUID
+    let kind: OutlineItemKind
     @Binding var text: String
     let focusRequest: OutlineFocusRequest?
     let onCommit: () -> Void
     let onDeleteEmpty: () -> Void
+    let onExitStructuredItem: () -> Void
+    let onApplyTypingShortcut: (OutlineItemKind) -> Void
     let onMoveVertical: (_ direction: Int, _ caretOffset: Int) -> Void
     let onIndent: () -> Void
     let onOutdent: () -> Void
@@ -554,7 +562,17 @@ private struct OutlineEditorField: NSViewRepresentable {
 
         func controlTextDidChange(_ notification: Notification) {
             guard let field = notification.object as? NSTextField else { return }
-            if let editor = field.currentEditor() as? NSTextView, editor.hasMarkedText() {
+            let editor = field.currentEditor() as? NSTextView
+            if let editor = editor, editor.hasMarkedText() {
+                return
+            }
+            if parent.kind == .checkbox,
+               let shortcutKind = OutlineTypingShortcut.kind(for: field.stringValue) {
+                editor?.string = ""
+                editor?.setSelectedRange(NSRange(location: 0, length: 0))
+                field.stringValue = ""
+                parent.onApplyTypingShortcut(shortcutKind)
+                (field as? OutlineTextField)?.invalidateWrappingHeight()
                 return
             }
             guard parent.text != field.stringValue else { return }
@@ -575,7 +593,11 @@ private struct OutlineEditorField: NSViewRepresentable {
                 parent.onMoveVertical(1, textView.selectedRange().location)
                 return true
             case #selector(NSResponder.deleteBackward(_:)) where textView.string.isEmpty:
-                DispatchQueue.main.async { self.parent.onDeleteEmpty() }
+                if parent.kind == .numbered || parent.kind == .bullet {
+                    DispatchQueue.main.async { self.parent.onExitStructuredItem() }
+                } else {
+                    DispatchQueue.main.async { self.parent.onDeleteEmpty() }
+                }
                 return true
             case #selector(NSResponder.insertNewline(_:)):
                 DispatchQueue.main.async { self.parent.onCommit() }

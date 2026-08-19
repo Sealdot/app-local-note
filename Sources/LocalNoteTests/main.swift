@@ -139,6 +139,12 @@ let tests: [TestCase] = [
         try expect(document.items[0].kind == .numbered, "row kind should change")
         try expect(!document.items[0].checked, "non-checkbox rows must clear checkbox state")
     },
+    TestCase("numbered typing shortcuts require a complete leading marker") {
+        try expect(OutlineTypingShortcut.kind(for: "1. ") == .numbered, "1. followed by space should start numbering")
+        try expect(OutlineTypingShortcut.kind(for: "12) ") == .numbered, "number and closing parenthesis should start numbering")
+        try expect(OutlineTypingShortcut.kind(for: "1.") == nil, "a marker without trailing space should remain literal text")
+        try expect(OutlineTypingShortcut.kind(for: "version 1. ") == nil, "ordinary text ending in a number should not change row type")
+    },
     TestCase("date keys follow the provided local calendar") {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(secondsFromGMT: 8 * 3600)!

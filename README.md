@@ -44,6 +44,9 @@ self-use workflow works with Command Line Tools alone.
 - `Up` / `Down`: move to the previous or next item;
 - `Return`: add and focus a peer item;
 - `Tab` / `Shift-Tab`: indent or outdent the current item;
+- type `1. ` at the beginning of an empty row to create a numbered structure;
+- `Return` continues numbered rows as `2.`, `3.`, and so on;
+- `Backspace` on an empty numbered row returns it to a normal checkbox to-do;
 - `Command-Shift-S`: toggle strikethrough for the current item;
 - `Backspace`: edit text normally, then remove an empty row and return to the previous item;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.
