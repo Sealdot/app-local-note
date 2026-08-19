@@ -29,7 +29,12 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - typing `1. ` on an empty checkbox row converts it to a numbered item without
   leaving the marker in its text;
 - Return preserves numbered style and advances the visible prefix, while
-  Backspace on an empty numbered row returns it to a checkbox without deletion;
+  Backspace on an empty numbered child returns it to a parent-level checkbox
+  without deletion;
+- indenting a new empty checkbox peer automatically creates a numbered child,
+  matching the checkbox-parent → numbered-children structure in the reference;
+- a second numbered indent uses alphabetic prefixes and Shift-Tab returns to
+  the numeric level;
 - numbered sequences restart after a non-numbered peer at the same depth.
 
 ### Persistence

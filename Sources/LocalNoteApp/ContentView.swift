@@ -286,11 +286,12 @@ struct ContentView: View {
                 OutlineEditorField(
                     itemID: item.id,
                     kind: item.kind,
+                    isStruck: item.isStruck,
                     text: model.itemBinding(id: item.id),
                     focusRequest: focusRequest,
                     onCommit: { addPeerAndFocus(after: item.id) },
                     onDeleteEmpty: { deleteAndFocus(item.id) },
-                    onExitStructuredItem: { model.changeKind(id: item.id, kind: .checkbox) },
+                    onExitStructuredItem: { model.exitStructuredItem(id: item.id) },
                     onApplyTypingShortcut: { kind in
                         model.applyTypingShortcut(id: item.id, kind: kind)
                     },
@@ -309,16 +310,11 @@ struct ContentView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
                 .opacity(item.isStruck ? 0.55 : 1)
-                if item.isStruck {
-                    WrappedStrikethrough()
-                        .stroke(Color.secondary.opacity(0.7), lineWidth: 1)
-                        .allowsHitTesting(false)
-                }
             }
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
-        .help("输入 1. 加空格创建编号；Return 延续；Shift-Tab 减少层级；空编号 Backspace 返回待办")
+        .help("顶层待办 Return 后按 Tab 创建 1. 子项；Return 延续编号；Shift-Tab 减少层级；空编号 Backspace 返回下一项待办")
         .contextMenu {
             Button("增加层级") { model.indent(id: item.id) }
             Button("减少层级") { model.outdent(id: item.id) }
@@ -484,25 +480,10 @@ private struct OutlineFocusRequest: Equatable {
     let caretOffset: Int
 }
 
-private struct WrappedStrikethrough: Shape {
-    private let lineHeight = ceil(NSFont.systemFont(ofSize: NSFont.systemFontSize).boundingRectForFont.height)
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let lines = max(1, Int(round(rect.height / lineHeight)))
-        let topInset = max(0, (rect.height - CGFloat(lines) * lineHeight) / 2)
-        for line in 0..<lines {
-            let y = topInset + (CGFloat(line) + 0.52) * lineHeight
-            path.move(to: CGPoint(x: rect.minX, y: y))
-            path.addLine(to: CGPoint(x: rect.maxX, y: y))
-        }
-        return path
-    }
-}
-
 private struct OutlineEditorField: NSViewRepresentable {
     let itemID: UUID
     let kind: OutlineItemKind
+    let isStruck: Bool
     @Binding var text: String
     let focusRequest: OutlineFocusRequest?
     let onCommit: () -> Void
@@ -550,6 +531,7 @@ private struct OutlineEditorField: NSViewRepresentable {
             field.stringValue = text
             (field as? OutlineTextField)?.invalidateWrappingHeight()
         }
+        (field as? OutlineTextField)?.applyStrikethrough(isStruck)
         (field as? OutlineTextField)?.applyFocusRequest(focusRequest)
     }
 
@@ -653,6 +635,41 @@ private final class OutlineTextField: NSTextField {
         invalidateIntrinsicContentSize()
         needsLayout = true
         superview?.needsLayout = true
+    }
+
+    func applyStrikethrough(_ enabled: Bool) {
+        let styleKey = NSAttributedString.Key.strikethroughStyle
+        let styleValue = NSUnderlineStyle.single.rawValue
+        if let editor = currentEditor() as? NSTextView, let storage = editor.textStorage {
+            let range = NSRange(location: 0, length: storage.length)
+            if range.length > 0 {
+                if enabled {
+                    storage.addAttribute(styleKey, value: styleValue, range: range)
+                } else {
+                    storage.removeAttribute(styleKey, range: range)
+                }
+            }
+            var attributes = editor.typingAttributes
+            if enabled {
+                attributes[styleKey] = styleValue
+            } else {
+                attributes.removeValue(forKey: styleKey)
+            }
+            editor.typingAttributes = attributes
+            return
+        }
+
+        let attributed = NSMutableAttributedString(string: stringValue)
+        let range = NSRange(location: 0, length: attributed.length)
+        if range.length > 0 {
+            if let font = font {
+                attributed.addAttribute(.font, value: font, range: range)
+            }
+            if enabled {
+                attributed.addAttribute(styleKey, value: styleValue, range: range)
+            }
+        }
+        attributedStringValue = attributed
     }
 
     func applyFocusRequest(_ request: OutlineFocusRequest?) {

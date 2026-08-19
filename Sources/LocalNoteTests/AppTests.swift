@@ -603,6 +603,116 @@ func appTests() -> [TestCase] {
             try expect(fixture.model.displayPrefix(for: third) == "1.", "a numbered sequence should restart after a checkbox peer")
             window.close()
         },
+        TestCase("Tab and Backspace create the reference checkbox-number hierarchy") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let parentID = try fixture.model.addItem().unwrap("parent to-do should be added")
+            fixture.model.updateText(id: parentID, text: "数据统计")
+            let firstChildID = try fixture.model.addPeer(after: parentID).unwrap("empty peer should be added")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let firstChildField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == firstChildID.uuidString })
+                .unwrap("empty peer field should be rendered")
+            try expect(window.makeFirstResponder(firstChildField), "empty peer should accept focus")
+            let firstChildEditor = try (window.firstResponder as? NSTextView).unwrap("empty peer editor should be active")
+            try sendKey(keyCode: 48, characters: "\t", to: firstChildEditor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items[1].depth == 1
+                        && fixture.model.document.items[1].kind == .numbered
+                        && fixture.model.displayPrefix(for: fixture.model.document.items[1]) == "1."
+                },
+                "Tab on a new empty checkbox should create the first numbered child"
+            )
+            try expect(firstChildField.currentEditor() === firstChildEditor, "automatic numbering should preserve focus")
+
+            try sendKey(keyCode: 0, characters: "first child", to: firstChildEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items[1].text == "first child" }, "first child text should persist")
+            try sendKey(keyCode: 36, characters: "\r", to: firstChildEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items.count == 3 }, "Return should create the second numeric child")
+            let alphaID = try fixture.model.document.items.last.map(\.id).unwrap("nested candidate should exist")
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .contains(where: { $0.identifier?.rawValue == alphaID.uuidString && $0.currentEditor() != nil })
+                },
+                "new numeric child should receive focus"
+            )
+            let alphaField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == alphaID.uuidString })
+                .unwrap("nested candidate field should render")
+            let alphaEditor = try (alphaField.currentEditor() as? NSTextView).unwrap("nested candidate editor should be active")
+            try sendKey(keyCode: 48, characters: "\t", to: alphaEditor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items[2].depth == 2
+                        && fixture.model.displayPrefix(for: fixture.model.document.items[2]) == "a."
+                },
+                "a second indent should use the alphabetic child marker from the reference"
+            )
+
+            try sendKey(keyCode: 0, characters: "alpha child", to: alphaEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items[2].text == "alpha child" }, "alphabetic child text should persist")
+            try sendKey(keyCode: 36, characters: "\r", to: alphaEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items.count == 4 }, "Return should continue the alphabetic list")
+            let secondNumericID = try fixture.model.document.items.last.map(\.id).unwrap("second numeric candidate should exist")
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .contains(where: { $0.identifier?.rawValue == secondNumericID.uuidString && $0.currentEditor() != nil })
+                },
+                "continued alphabetic child should receive focus"
+            )
+            let secondNumericField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == secondNumericID.uuidString })
+                .unwrap("second numeric candidate field should render")
+            let secondNumericEditor = try (secondNumericField.currentEditor() as? NSTextView).unwrap("continued child editor should be active")
+            try sendKey(keyCode: 48, characters: "\u{19}", modifiers: [.shift], to: secondNumericEditor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items[3].depth == 1
+                        && fixture.model.displayPrefix(for: fixture.model.document.items[3]) == "2."
+                },
+                "Shift-Tab should return from alphabetic children to the next numeric item"
+            )
+
+            try sendKey(keyCode: 0, characters: "second child", to: secondNumericEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items[3].text == "second child" }, "second numeric child text should persist")
+            try sendKey(keyCode: 36, characters: "\r", to: secondNumericEditor, window: window)
+            try expect(waitUntil { fixture.model.document.items.count == 5 }, "Return should create an empty third numeric item")
+            let nextParentID = try fixture.model.document.items.last.map(\.id).unwrap("next parent candidate should exist")
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .contains(where: { $0.identifier?.rawValue == nextParentID.uuidString && $0.currentEditor() != nil })
+                },
+                "empty third numeric item should receive focus"
+            )
+            let nextParentField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == nextParentID.uuidString })
+                .unwrap("next parent candidate field should render")
+            let nextParentEditor = try (nextParentField.currentEditor() as? NSTextView).unwrap("next parent candidate editor should be active")
+            try sendKey(keyCode: 51, characters: "\u{7f}", to: nextParentEditor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.count == 5
+                        && fixture.model.document.items[4].depth == 0
+                        && fixture.model.document.items[4].kind == .checkbox
+                },
+                "Backspace should turn an empty numbered child into the next top-level checkbox"
+            )
+            try expect(nextParentField.currentEditor() != nil, "returning to the next parent should preserve focus")
+            window.close()
+        },
         TestCase("paste reaches both real Notion settings fields") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }

@@ -44,9 +44,13 @@ self-use workflow works with Command Line Tools alone.
 - `Up` / `Down`: move to the previous or next item;
 - `Return`: add and focus a peer item;
 - `Tab` / `Shift-Tab`: indent or outdent the current item;
+- after a top-level checkbox, press `Return` then `Tab` on the empty row to
+  create its first numbered child (`1.`);
 - type `1. ` at the beginning of an empty row to create a numbered structure;
 - `Return` continues numbered rows as `2.`, `3.`, and so on;
-- `Backspace` on an empty numbered row returns it to a normal checkbox to-do;
+- indenting a numbered child again uses alphabetic markers such as `a.`;
+- `Backspace` on an empty numbered child returns it to the next parent-level
+  checkbox to-do;
 - `Command-Shift-S`: toggle strikethrough for the current item;
 - `Backspace`: edit text normally, then remove an empty row and return to the previous item;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.

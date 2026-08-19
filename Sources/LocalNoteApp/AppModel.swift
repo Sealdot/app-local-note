@@ -160,7 +160,15 @@ final class AppModel: ObservableObject {
     }
 
     func indent(id: UUID) {
-        mutate { OutlineEditor.indent(in: &$0, id: id) }
+        mutate { document in
+            guard let index = document.items.firstIndex(where: { $0.id == id }) else { return }
+            let original = document.items[index]
+            OutlineEditor.indent(in: &document, id: id)
+            guard document.items[index].depth > original.depth,
+                  original.kind == .checkbox,
+                  original.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            OutlineEditor.changeKind(in: &document, id: id, kind: .numbered)
+        }
     }
 
     func outdent(id: UUID) {
@@ -173,6 +181,16 @@ final class AppModel: ObservableObject {
 
     func changeKind(id: UUID, kind: OutlineItemKind) {
         mutate { OutlineEditor.changeKind(in: &$0, id: id, kind: kind) }
+    }
+
+    func exitStructuredItem(id: UUID) {
+        mutate { document in
+            guard let item = document.items.first(where: { $0.id == id }) else { return }
+            OutlineEditor.changeKind(in: &document, id: id, kind: .checkbox)
+            if item.depth > 0 {
+                OutlineEditor.outdent(in: &document, id: id)
+            }
+        }
     }
 
     func applyTypingShortcut(id: UUID, kind: OutlineItemKind) {
