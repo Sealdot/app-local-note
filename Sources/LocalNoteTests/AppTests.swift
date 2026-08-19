@@ -601,6 +601,29 @@ func appTests() -> [TestCase] {
             try expect(fixture.model.document.items.first?.text == "离线记录", "text should survive reload")
             try expect(fixture.model.document.items.first?.checked == true, "completion should survive reload")
         },
+        TestCase("calendar summaries combine historical files with the live selected day") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let currentKey = fixture.model.dateKey
+            let historicalKey = try DateKey.adding(days: -2, to: currentKey).unwrap("historical date should exist")
+            let history = DayDocument(dateKey: historicalKey, items: [
+                OutlineItem(kind: .checkbox, text: "finished", checked: true),
+                OutlineItem(kind: .checkbox, text: "open")
+            ])
+            try fixture.dayStore.save(history)
+
+            let liveID = try fixture.model.addItem().unwrap("live row should be created")
+            fixture.model.updateText(id: liveID, text: "not saved yet")
+            let summaries = fixture.model.activitySummaries(for: [historicalKey, currentKey])
+
+            try expect(summaries[historicalKey]?.completedTodos == 1, "history should load from its daily file")
+            try expect(summaries[historicalKey]?.totalTodos == 2, "history should include open and completed to-dos")
+            try expect(summaries[currentKey]?.totalTodos == 1, "the selected day should reflect unsaved in-memory edits")
+
+            fixture.model.navigate(to: historicalKey)
+            try expect(fixture.model.dateKey == historicalKey, "calendar selection should navigate directly to its date")
+            try expect(fixture.model.document.items.map(\.text) == ["finished", "open"], "calendar selection should load the target day's outline")
+        },
         TestCase("Notion settings validate normalize and use the secret store") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }

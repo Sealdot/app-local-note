@@ -71,6 +71,39 @@ public struct DayDocument: Codable, Equatable {
     }
 }
 
+public struct DayActivitySummary: Equatable {
+    public let dateKey: String
+    public let totalTodos: Int
+    public let completedTodos: Int
+
+    public var hasTodos: Bool {
+        totalTodos > 0
+    }
+
+    /// GitHub-contribution-style activity level. Zero means no to-dos; level
+    /// one marks an active day with no completed to-dos; higher levels reflect
+    /// absolute completed counts so productive days remain visually distinct.
+    public var intensityLevel: Int {
+        guard hasTodos else { return 0 }
+        switch completedTodos {
+        case 0: return 1
+        case 1: return 2
+        case 2...3: return 3
+        case 4...6: return 4
+        default: return 5
+        }
+    }
+
+    public init(document: DayDocument) {
+        let todos = document.items.filter {
+            $0.kind == .checkbox && !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        dateKey = document.dateKey
+        totalTodos = todos.count
+        completedTodos = todos.filter(\.checked).count
+    }
+}
+
 public enum OutlineEditor {
     public static func append(
         to document: inout DayDocument,

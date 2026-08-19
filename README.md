@@ -9,6 +9,7 @@ The project is intentionally native and dependency-free:
 - status bar icon and popover; no Dock window
 - AppKit + SwiftUI; no Electron and no embedded web view
 - one JSON file per day; only the selected day is held in memory
+- on-demand monthly calendar overview with contribution-style completion levels
 - credentials stored in macOS Keychain
 - event-driven synchronization; no background polling loop
 
@@ -47,6 +48,14 @@ self-use workflow works with Command Line Tools alone.
 - `Backspace`: edit text normally, then remove an empty row and return to the previous item;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.
 
+## Calendar overview
+
+Use the calendar button in the popover header to review a fixed six-week month.
+Days with to-dos are marked, and the accent color becomes darker as more
+checkbox to-dos are completed. Selecting a day returns directly to its outline.
+The overview reads only its visible 42-day range when opened or changed; normal
+outline editing continues to keep only the selected day in memory.
+
 ## Notion setup
 
 Notion sync is optional. Create your own Notion token, grant it access only to
@@ -61,7 +70,8 @@ and reopening the popover); there is intentionally no background polling.
 Online requests normally finish within a few seconds and fail with a visible
 error after 15 seconds instead of leaving the status spinning indefinitely.
 
-See [architecture](docs/architecture.md), [implementation plan](docs/implementation-plan.md),
+See the [calendar overview design](docs/calendar-overview.md),
+[architecture](docs/architecture.md), [implementation plan](docs/implementation-plan.md),
 the [test plan](docs/test-plan.md), the measured [performance baseline](docs/performance.md),
 and the [app icon rationale](docs/icon-design.md).
 

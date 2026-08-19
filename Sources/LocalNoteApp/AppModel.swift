@@ -186,6 +186,24 @@ final class AppModel: ObservableObject {
         load(dateKey: DateKey.make(from: Date()))
     }
 
+    func navigate(to dateKey: String) {
+        guard DateKey.isValid(dateKey), dateKey != self.dateKey else { return }
+        flushSave()
+        load(dateKey: dateKey)
+    }
+
+    func activitySummaries(for dateKeys: [String]) -> [String: DayActivitySummary] {
+        var summaries: [String: DayActivitySummary] = [:]
+        for key in Set(dateKeys) where DateKey.isValid(key) {
+            if key == dateKey {
+                summaries[key] = DayActivitySummary(document: document)
+            } else if let historicalDocument = try? dayStore.load(dateKey: key) {
+                summaries[key] = DayActivitySummary(document: historicalDocument)
+            }
+        }
+        return summaries
+    }
+
     @discardableResult
     func saveSettings() -> Bool {
         let pageIDInput = notionPageID.trimmingCharacters(in: .whitespacesAndNewlines)

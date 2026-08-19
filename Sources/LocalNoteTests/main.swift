@@ -147,6 +147,35 @@ let tests: [TestCase] = [
         try expect(DateKey.isValid(key), "generated date key should be valid")
         try expect(DateKey.adding(days: 1, to: "2026-12-31", calendar: calendar) == "2027-01-01", "date addition should cross years")
     },
+    TestCase("calendar month grid is Monday-first and stable at six weeks") {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let days = DateKey.monthGrid(containing: "2026-08-19", calendar: calendar)
+        try expect(days.count == 42, "month overview should always contain six weeks")
+        try expect(days.first?.dateKey == "2026-07-27", "August 2026 should begin in the Monday week containing July 27")
+        try expect(days.last?.dateKey == "2026-09-06", "six-week grid should end on Sunday")
+        try expect(days.filter(\.isInDisplayedMonth).count == 31, "all August days should be marked in-month")
+        try expect(DateKey.adding(months: 1, to: "2026-01-31", calendar: calendar) == "2026-02-01", "month navigation should not skip short months")
+    },
+    TestCase("day activity uses meaningful checkbox to-dos and completion tiers") {
+        func summary(completed: Int, total: Int) -> DayActivitySummary {
+            let completedItems = (0..<completed).map { OutlineItem(kind: .checkbox, text: "done \($0)", checked: true) }
+            let openItems = (completed..<total).map { OutlineItem(kind: .checkbox, text: "open \($0)") }
+            return DayActivitySummary(document: DayDocument(dateKey: "2026-08-19", items: completedItems + openItems))
+        }
+        try expect(summary(completed: 0, total: 0).intensityLevel == 0, "an empty day should be neutral")
+        try expect(summary(completed: 0, total: 2).intensityLevel == 1, "open to-dos should mark the day")
+        try expect(summary(completed: 1, total: 2).intensityLevel == 2, "one completed to-do should use the first completion tier")
+        try expect(summary(completed: 3, total: 3).intensityLevel == 3, "two to three completions should share a tier")
+        try expect(summary(completed: 6, total: 6).intensityLevel == 4, "four to six completions should share a tier")
+        try expect(summary(completed: 7, total: 7).intensityLevel == 5, "seven or more completions should use the darkest tier")
+
+        let ignored = DayDocument(dateKey: "2026-08-20", items: [
+            OutlineItem(kind: .checkbox, text: "   ", checked: true),
+            OutlineItem(kind: .text, text: "note", manualStrikethrough: true)
+        ])
+        try expect(!DayActivitySummary(document: ignored).hasTodos, "blank rows and non-checkbox notes should not count as to-dos")
+    },
     TestCase("file store round-trip") {
         let root = try temporaryDirectory()
         defer { try? FileManager.default.removeItem(at: root) }

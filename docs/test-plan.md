@@ -34,6 +34,19 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - corrupt files produce a recoverable error and are not overwritten;
 - filenames are derived from local calendar dates, not UTC rollover;
 - loading one day does not enumerate or decode historical day files.
+- opening a calendar range reads only its fixed 42 date keys and uses the live
+  in-memory document for the selected date.
+
+### Calendar overview
+
+- a month grid is Monday-first, contains exactly 42 days, and crosses month and
+  year boundaries without changing shape;
+- month navigation starts from day one so short months cannot be skipped;
+- only non-empty checkbox rows count as to-dos;
+- activity levels distinguish no to-dos, scheduled-but-incomplete days, and
+  1, 2–3, 4–6, and 7+ completed to-dos;
+- historical summaries load from their own day files while unsaved edits to the
+  selected day appear immediately.
 
 ### Markdown
 

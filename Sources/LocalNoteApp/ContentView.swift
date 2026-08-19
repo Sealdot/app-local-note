@@ -7,11 +7,21 @@ import LocalNoteCore
 struct ContentView: View {
     @ObservedObject var model: AppModel
     @State private var showingSettings: Bool
+    @State private var showingCalendar: Bool
+    @State private var calendarMonthDateKey: String
+    @State private var calendarSummaries: [String: DayActivitySummary]
     @State private var focusRequest: OutlineFocusRequest?
 
-    init(model: AppModel, initiallyShowingSettings: Bool = false) {
+    init(
+        model: AppModel,
+        initiallyShowingSettings: Bool = false,
+        initiallyShowingCalendar: Bool = false
+    ) {
         self.model = model
         _showingSettings = State(initialValue: initiallyShowingSettings)
+        _showingCalendar = State(initialValue: initiallyShowingCalendar)
+        _calendarMonthDateKey = State(initialValue: model.dateKey)
+        _calendarSummaries = State(initialValue: [:])
         _focusRequest = State(initialValue: nil)
     }
 
@@ -21,6 +31,8 @@ struct ContentView: View {
             Divider()
             if showingSettings {
                 settings
+            } else if showingCalendar {
+                calendarOverview
             } else {
                 outline
             }
@@ -29,6 +41,12 @@ struct ContentView: View {
         }
         .frame(width: 440, height: 560)
         .background(Color(NSColor.windowBackgroundColor))
+        .onAppear {
+            if showingCalendar { refreshCalendar() }
+        }
+        .onChange(of: model.document) { _ in
+            if showingCalendar { refreshCalendar() }
+        }
     }
 
     private var header: some View {
@@ -47,6 +65,12 @@ struct ContentView: View {
             }
             .buttonStyle(PlainButtonStyle())
             Spacer()
+            Button(action: toggleCalendar) {
+                Image(systemName: showingCalendar && !showingSettings ? "calendar.circle.fill" : "calendar")
+            }
+            .buttonStyle(PlainButtonStyle())
+            .help(showingCalendar && !showingSettings ? "返回清单" : "日历概览")
+            .accessibility(label: Text("日历概览"))
             Button(action: { showingSettings.toggle() }) {
                 Image(systemName: showingSettings ? "xmark" : "gearshape")
             }
@@ -55,6 +79,158 @@ struct ContentView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
+    }
+
+    private var calendarOverview: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: { shiftCalendarMonth(by: -1) }) {
+                    Image(systemName: "chevron.left")
+                }
+                .buttonStyle(PlainButtonStyle())
+                Spacer()
+                Text(calendarMonthTitle)
+                    .font(.headline)
+                Spacer()
+                Button(action: { shiftCalendarMonth(by: 1) }) {
+                    Image(systemName: "chevron.right")
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
+            .padding(.bottom, 14)
+
+            HStack(spacing: 6) {
+                ForEach(Array(["一", "二", "三", "四", "五", "六", "日"].enumerated()), id: \.offset) { entry in
+                    Text(entry.element)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(.horizontal, 14)
+
+            VStack(spacing: 6) {
+                ForEach(0..<6, id: \.self) { week in
+                    HStack(spacing: 6) {
+                        ForEach(Array(calendarDays[(week * 7)..<(week * 7 + 7)]), id: \.dateKey) { day in
+                            calendarDayButton(day)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 8)
+
+            Spacer(minLength: 12)
+
+            HStack(spacing: 6) {
+                Text("少")
+                ForEach(0..<6, id: \.self) { level in
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(activityColor(level: level))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 3)
+                                .stroke(Color.secondary.opacity(level == 0 ? 0.25 : 0), lineWidth: 1)
+                        )
+                        .frame(width: 14, height: 14)
+                }
+                Text("多")
+                Spacer()
+                Text("颜色越深，完成越多")
+            }
+            .font(.caption2)
+            .foregroundColor(.secondary)
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+        }
+    }
+
+    private func calendarDayButton(_ day: CalendarDay) -> some View {
+        let summary = calendarSummaries[day.dateKey]
+        let isSelected = day.dateKey == model.dateKey
+        let isToday = day.dateKey == DateKey.make(from: Date())
+        return Button(action: { selectCalendarDay(day.dateKey) }) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 7)
+                    .fill(activityColor(level: summary?.intensityLevel ?? 0))
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(
+                        isSelected ? Color.accentColor : Color.secondary.opacity(isToday ? 0.7 : 0.12),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+                Text("\(day.dayNumber)")
+                    .font(.system(size: 12, weight: isSelected || isToday ? .semibold : .regular))
+                    .foregroundColor(day.isInDisplayedMonth ? .primary : .secondary)
+                    .opacity(day.isInDisplayedMonth ? 1 : 0.45)
+            }
+            .frame(maxWidth: .infinity, minHeight: 42)
+        }
+        .buttonStyle(PlainButtonStyle())
+        .help(activityHelp(for: day, summary: summary))
+        .accessibility(label: Text(activityHelp(for: day, summary: summary)))
+    }
+
+    private var calendarDays: [CalendarDay] {
+        let days = DateKey.monthGrid(containing: calendarMonthDateKey)
+        if days.count == 42 { return days }
+        return (0..<42).map {
+            CalendarDay(dateKey: "invalid-\($0)", dayNumber: $0 + 1, isInDisplayedMonth: false)
+        }
+    }
+
+    private var calendarMonthTitle: String {
+        let parts = calendarMonthDateKey.split(separator: "-")
+        guard parts.count >= 2 else { return calendarMonthDateKey }
+        return "\(parts[0])年\(Int(parts[1]) ?? 0)月"
+    }
+
+    private func activityColor(level: Int) -> Color {
+        switch level {
+        case 1: return Color.accentColor.opacity(0.14)
+        case 2: return Color.accentColor.opacity(0.28)
+        case 3: return Color.accentColor.opacity(0.44)
+        case 4: return Color.accentColor.opacity(0.62)
+        case 5: return Color.accentColor.opacity(0.82)
+        default: return Color.primary.opacity(0.025)
+        }
+    }
+
+    private func activityHelp(for day: CalendarDay, summary: DayActivitySummary?) -> String {
+        guard let summary = summary, summary.hasTodos else { return "\(day.dateKey)：无待办" }
+        return "\(day.dateKey)：完成 \(summary.completedTodos)/\(summary.totalTodos)"
+    }
+
+    private func toggleCalendar() {
+        if showingSettings {
+            showingSettings = false
+            showingCalendar = true
+            calendarMonthDateKey = model.dateKey
+            refreshCalendar()
+            return
+        }
+        showingCalendar.toggle()
+        if showingCalendar {
+            calendarMonthDateKey = model.dateKey
+            refreshCalendar()
+        }
+    }
+
+    private func shiftCalendarMonth(by months: Int) {
+        guard let shifted = DateKey.adding(months: months, to: calendarMonthDateKey) else { return }
+        calendarMonthDateKey = shifted
+        refreshCalendar()
+    }
+
+    private func selectCalendarDay(_ dateKey: String) {
+        model.navigate(to: dateKey)
+        showingCalendar = false
+    }
+
+    private func refreshCalendar() {
+        let keys = DateKey.monthGrid(containing: calendarMonthDateKey).map(\.dateKey)
+        calendarSummaries = model.activitySummaries(for: keys)
     }
 
     private var outline: some View {
@@ -267,11 +443,13 @@ struct ContentView: View {
                     }
                     .help("用本地当天内容覆盖 Notion")
                 } else {
-                    Button(action: addAndFocusItem) {
-                        Image(systemName: "plus")
+                    if !showingCalendar {
+                        Button(action: addAndFocusItem) {
+                            Image(systemName: "plus")
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .help("添加事项")
                     }
-                    .buttonStyle(PlainButtonStyle())
-                    .help("添加事项")
                     Button(action: { model.syncNow() }) {
                         Image(systemName: "arrow.triangle.2.circlepath")
                     }

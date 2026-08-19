@@ -10,6 +10,8 @@
 6. Manual and event-driven sync preserve a base snapshot and detect conflicts.
 7. A command-line packaging script creates an ad-hoc signed `.app` without a
    paid Apple developer account.
+8. An on-demand month overview marks days with to-dos and visualizes completed
+   activity without adding background indexing or polling.
 
 ## Deferred work
 
@@ -41,3 +43,7 @@ and deterministic transport tests.
 Release build, `.app` packaging, ad-hoc signing, idle behavior review, large
 history smoke test, and documentation.
 
+### M5: work calendar overview
+
+Fixed six-week month grid, contribution-style completion tiers, on-demand
+42-day summary loading, direct date selection, and calendar regression tests.
