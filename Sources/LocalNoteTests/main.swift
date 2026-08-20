@@ -246,12 +246,20 @@ let tests: [TestCase] = [
     TestCase("plain text starting with list markers stays plain text") {
         let items = [
             OutlineItem(kind: .text, text: "- looks like a bullet"),
-            OutlineItem(kind: .text, text: "1. looks numbered")
+            OutlineItem(kind: .text, text: "1. looks numbered"),
+            OutlineItem(kind: .text, text: "-"),
+            OutlineItem(kind: .text, text: "1.")
         ]
         let document = DayDocument(dateKey: "2026-08-13", items: items)
         let decoded = MarkdownCodec.decode(MarkdownCodec.encode(document), dateKey: document.dateKey)
-        try expect(decoded.items.map(\.kind) == [.text, .text], "escaped text must not become lists")
+        try expect(decoded.items.map(\.kind) == [.text, .text, .text, .text], "escaped text must not become lists")
         try expect(decoded.items.map(\.text) == items.map(\.text), "escaped markers must restore exactly")
+    },
+    TestCase("Notion bare empty list markers normalize safely") {
+        let decoded = MarkdownCodec.decode("1.\n-\n1. child\n- bullet", dateKey: "2026-08-20", now: fixedDate)
+        try expect(decoded.items.map(\.kind) == [.numbered, .bullet, .numbered, .bullet], "bare Notion markers should retain their list kinds")
+        try expect(decoded.items.map(\.text) == ["", "", "child", "bullet"], "bare Notion markers should decode as empty rows")
+        try expect(MarkdownCodec.encode(decoded).hasPrefix("1. \n- \n"), "bare markers should canonicalize to local empty-list syntax")
     },
     TestCase("empty day encodes to an empty body") {
         try expect(MarkdownCodec.encode(DayDocument(dateKey: "2026-08-13")).isEmpty, "empty day body should be empty")

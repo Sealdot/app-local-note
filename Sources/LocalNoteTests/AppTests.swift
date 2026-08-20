@@ -1012,6 +1012,38 @@ func appTests() -> [TestCase] {
             try expect(waitUntil { fixture.model.syncState == .synced && transport.requests.count == 2 }, "a repeated pull should remain synced")
             try expect(transport.requests.map(\.httpMethod) == ["GET", "GET"], "equivalent Notion numbering must not trigger PATCH")
         },
+        TestCase("Notion bare empty numbering does not conflict with local edits") {
+            let transport = StubTransport()
+            let fixture = try appFixture(
+                transport: transport,
+                pageID: "12345678-90ab-cdef-1234-567890abcdef",
+                token: "ntn_test"
+            )
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let parentID = try fixture.model.addItem().unwrap("parent should be added")
+            fixture.model.updateText(id: parentID, text: "group")
+            let childID = try fixture.model.addPeer(after: parentID).unwrap("empty child candidate should be added")
+            fixture.model.indent(id: childID)
+            fixture.model.flushSave()
+            let baseMarkdown = MarkdownCodec.encode(fixture.model.document)
+            try fixture.snapshotStore.save(
+                SyncSnapshot(dateKey: fixture.model.dateKey, baseMarkdown: baseMarkdown)
+            )
+
+            fixture.model.updateText(id: childID, text: "local child")
+            let key = DateKey.compact(fixture.model.dateKey)
+            transport.responseData = try notionResponse(
+                markdown: "\(key)\n\t- [ ] group\n\t\t1.\n<empty-block/>"
+            )
+            fixture.model.syncNow()
+
+            try expect(waitUntil { fixture.model.syncState == .synced }, "Notion whitespace normalization should still allow the local push")
+            try expect(transport.requests.map(\.httpMethod) == ["GET", "PATCH"], "equivalent empty numbering must not trigger a conflict")
+            let patch = try transport.requests.last.unwrap("local edits should be pushed")
+            let body = try JSONSerialization.jsonObject(with: patch.httpBody ?? Data()) as? [String: Any]
+            let replacement = body?["replace_content"] as? [String: Any]
+            try expect((replacement?["new_str"] as? String)?.contains("local child") == true, "the safe push should retain local edits")
+        },
         TestCase("unchanged Notion day performs no remote write") {
             let transport = StubTransport()
             let fixture = try appFixture(

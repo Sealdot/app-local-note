@@ -79,6 +79,8 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - local-only edits push;
 - remote-only edits pull;
 - repeated pulls normalize Notion numbering without false conflicts or writes;
+- bare empty numbered or bullet markers returned by Notion normalize without
+  false conflicts, including when local edits need to be pushed;
 - simultaneous changes produce a conflict and never overwrite;
 - choosing Notion resolves a conflict without PATCH;
 - choosing local re-fetches the page before one guarded PATCH;

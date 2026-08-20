@@ -37,7 +37,7 @@ public enum MarkdownCodec {
         }
         var escaped = escape(item.text)
         if item.kind == .text,
-           escaped.range(of: #"^(?:- |\d+\. )"#, options: .regularExpression) != nil {
+           escaped.range(of: #"^(?:-(?: |$)|\d+\.(?: |$))"#, options: .regularExpression) != nil {
             escaped = "\\" + escaped
         }
         let content = item.isStruck && !escaped.isEmpty ? "~~\(escaped)~~" : escaped
@@ -66,14 +66,12 @@ public enum MarkdownCodec {
             kind = .checkbox
             checked = true
             content.removeFirst(6)
-        } else if content.range(of: #"^\d+\. "#, options: .regularExpression) != nil {
+        } else if let range = content.range(of: #"^\d+\.(?: |$)"#, options: .regularExpression) {
             kind = .numbered
-            if let range = content.range(of: #"^\d+\. "#, options: .regularExpression) {
-                content.removeSubrange(range)
-            }
-        } else if content.hasPrefix("- ") {
+            content.removeSubrange(range)
+        } else if content == "-" || content.hasPrefix("- ") {
             kind = .bullet
-            content.removeFirst(2)
+            content = content == "-" ? "" : String(content.dropFirst(2))
         }
 
         var manualStrike = false
