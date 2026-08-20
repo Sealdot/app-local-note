@@ -174,6 +174,23 @@ func appTests() -> [TestCase] {
             try expect(action(for: "a") == #selector(NSText.selectAll(_:)), "Command-A must route to the text responder")
             try expect(action(for: "x") == #selector(NSText.cut(_:)), "Command-X must route to the text responder")
             try expect(action(for: "c") == #selector(NSText.copy(_:)), "Command-C must route to the text responder")
+            let undoItem = try editMenu.items.first(where: { $0.title == "撤销" })
+                .unwrap("undo menu item should exist")
+            try expect(
+                undoItem.action == #selector(OutlineCommandRouter.undoLocalNote(_:)),
+                "Command-Z must route to model-backed outline history"
+            )
+            try expect(undoItem.target === OutlineCommandRouter.shared, "undo should use the outline command router")
+            let redoItem = try editMenu.items.first(where: { $0.title == "重做" })
+                .unwrap("redo menu item should exist")
+            try expect(
+                redoItem.action == #selector(OutlineCommandRouter.redoLocalNote(_:)),
+                "Command-Shift-Z must route to model-backed outline history"
+            )
+            try expect(
+                redoItem.keyEquivalentModifierMask == [.command, .shift],
+                "redo shortcut should use Command-Shift"
+            )
             let strikeItem = try editMenu.items
                 .first(where: { $0.title == "切换划线" })
                 .unwrap("strikethrough menu item should exist")
@@ -524,6 +541,7 @@ func appTests() -> [TestCase] {
             try expect(waitUntil { fixture.model.document.items.last?.depth == 1 }, "Tab should indent the current row")
             try sendKey(keyCode: 48, characters: "\u{19}", modifiers: [.shift], to: editor, window: window)
             try expect(waitUntil { fixture.model.document.items.last?.depth == 0 }, "Shift-Tab should outdent the current row")
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
             try sendKey(keyCode: 36, characters: "\r", to: editor, window: window)
             try expect(waitUntil { fixture.model.document.items.count == 3 }, "Return should add a peer row")
             let insertedID = try fixture.model.document.items.last.map(\.id).unwrap("inserted peer should exist")
@@ -534,6 +552,80 @@ func appTests() -> [TestCase] {
                         .currentEditor() != nil
                 },
                 "Return should focus the inserted peer row"
+            )
+            window.close()
+        },
+        TestCase("Return at the caret splits a parent before its descendants") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let parentID = try fixture.model.addItem().unwrap("parent row should be added")
+            fixture.model.updateText(id: parentID, text: "客诉专项")
+            let childID = try fixture.model.addPeer(after: parentID).unwrap("child candidate should be added")
+            fixture.model.indent(id: childID)
+            fixture.model.updateText(id: childID, text: "问题查看")
+            let nextID = try fixture.model.addPeer(after: parentID).unwrap("next parent should be added")
+            fixture.model.updateText(id: nextID, text: "客诉梳理")
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let parentField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == parentID.uuidString })
+                .unwrap("parent field should be rendered")
+            try expect(window.makeFirstResponder(parentField), "parent field should accept focus")
+            let editor = try (parentField.currentEditor() as? NSTextView).unwrap("parent editor should be active")
+            editor.setSelectedRange(NSRange(location: 0, length: 0))
+
+            try sendKey(keyCode: 36, characters: "\r", to: editor, window: window)
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.map(\.text) == ["", "客诉专项", "问题查看", "客诉梳理"]
+                },
+                "Return at line start should split where the caret is instead of skipping the child subtree"
+            )
+            try expect(
+                fixture.model.document.items.map(\.depth) == [0, 0, 1, 0],
+                "the existing child should remain under the moved parent text"
+            )
+            let splitID = fixture.model.document.items[1].id
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .first(where: { $0.identifier?.rawValue == splitID.uuidString })?
+                        .currentEditor() != nil
+                },
+                "the right-hand row should receive focus at the split point"
+            )
+
+            let menu = ApplicationMenu.make()
+            NSApplication.shared.mainMenu = menu
+            let undoItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.title == "撤销" })
+                .unwrap("undo item should exist")
+            try expect(
+                NSApplication.shared.sendAction(undoItem.action!, to: undoItem.target, from: undoItem),
+                "Command-Z action should reach model history"
+            )
+            try expect(
+                waitUntil { fixture.model.document.items.map(\.text) == ["客诉专项", "问题查看", "客诉梳理"] },
+                "undo should restore the parent and remove the caret split"
+            )
+            let redoItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.title == "重做" })
+                .unwrap("redo item should exist")
+            try expect(
+                NSApplication.shared.sendAction(redoItem.action!, to: redoItem.target, from: redoItem),
+                "Command-Shift-Z action should reach model history"
+            )
+            try expect(
+                waitUntil { fixture.model.document.items.map(\.text) == ["", "客诉专项", "问题查看", "客诉梳理"] },
+                "redo should reapply the caret split"
             )
             window.close()
         },
@@ -760,6 +852,19 @@ func appTests() -> [TestCase] {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             try expect(fixture.model.notionToken == "ntn_settings_test", "token paste should update its binding")
             window.close()
+        },
+        TestCase("AppModel undo and redo restore text edits") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let id = try fixture.model.addItem().unwrap("row should be added")
+            fixture.model.updateText(id: id, text: "第一版")
+            fixture.model.updateText(id: id, text: "第二版")
+            try expect(fixture.model.canUndo, "text editing should create undo history")
+            try expect(fixture.model.undo(), "undo should succeed")
+            try expect(fixture.model.document.items.first?.text == "第一版", "undo should restore the previous text")
+            try expect(fixture.model.canRedo, "undo should create redo history")
+            try expect(fixture.model.redo(), "redo should succeed")
+            try expect(fixture.model.document.items.first?.text == "第二版", "redo should restore the newer text")
         },
         TestCase("AppModel edits persist across date navigation") {
             let fixture = try appFixture()

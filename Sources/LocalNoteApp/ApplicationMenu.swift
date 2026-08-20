@@ -16,8 +16,21 @@ enum ApplicationMenu {
 
         let editItem = NSMenuItem()
         let editMenu = NSMenu(title: "编辑")
-        editMenu.addItem(menuItem("撤销", action: Selector(("undo:")), key: "z"))
-        editMenu.addItem(menuItem("重做", action: Selector(("redo:")), key: "Z", modifiers: [.command, .shift]))
+        let undoItem = menuItem(
+            "撤销",
+            action: #selector(OutlineCommandRouter.undoLocalNote(_:)),
+            key: "z"
+        )
+        undoItem.target = OutlineCommandRouter.shared
+        editMenu.addItem(undoItem)
+        let redoItem = menuItem(
+            "重做",
+            action: #selector(OutlineCommandRouter.redoLocalNote(_:)),
+            key: "Z",
+            modifiers: [.command, .shift]
+        )
+        redoItem.target = OutlineCommandRouter.shared
+        editMenu.addItem(redoItem)
         editMenu.addItem(.separator())
         editMenu.addItem(menuItem("剪切", action: #selector(NSText.cut(_:)), key: "x"))
         editMenu.addItem(menuItem("复制", action: #selector(NSText.copy(_:)), key: "c"))
@@ -55,6 +68,8 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
     static let shared = OutlineCommandRouter()
 
     private let toggleStrikeSelector = #selector(OutlineCommandRouter.toggleLocalNoteStrikethrough(_:))
+    private let undoSelector = #selector(OutlineCommandRouter.undoLocalNote(_:))
+    private let redoSelector = #selector(OutlineCommandRouter.redoLocalNote(_:))
     private weak var activeField: NSTextField?
 
     func didBeginEditing(_ field: NSTextField) {
@@ -70,8 +85,25 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
         _ = NSApplication.shared.sendAction(toggleStrikeSelector, to: field, from: sender)
     }
 
+    @objc func undoLocalNote(_ sender: Any?) {
+        guard let field = focusedOutlineField() else { return }
+        _ = NSApplication.shared.sendAction(undoSelector, to: field, from: sender)
+    }
+
+    @objc func redoLocalNote(_ sender: Any?) {
+        guard let field = focusedOutlineField() else { return }
+        _ = NSApplication.shared.sendAction(redoSelector, to: field, from: sender)
+    }
+
     func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        menuItem.action != toggleStrikeSelector || focusedOutlineField() != nil
+        switch menuItem.action {
+        case toggleStrikeSelector,
+             #selector(OutlineCommandRouter.undoLocalNote(_:)),
+             #selector(OutlineCommandRouter.redoLocalNote(_:)):
+            return focusedOutlineField() != nil
+        default:
+            return true
+        }
     }
 
     private func focusedOutlineField() -> NSTextField? {

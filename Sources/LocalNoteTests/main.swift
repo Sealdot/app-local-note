@@ -98,6 +98,21 @@ let tests: [TestCase] = [
         try expect(document.items[2].text.isEmpty, "peer should be inserted after descendants")
         try expect(document.items[2].depth == 0, "peer should preserve depth")
     },
+    TestCase("caret split inserts before descendants") {
+        let parent = OutlineItem(depth: 0, kind: .checkbox, text: "客诉专项", createdAt: fixedDate, updatedAt: fixedDate)
+        let child = OutlineItem(depth: 1, kind: .numbered, text: "问题查看", createdAt: fixedDate, updatedAt: fixedDate)
+        let next = OutlineItem(depth: 0, kind: .checkbox, text: "客诉梳理", createdAt: fixedDate, updatedAt: fixedDate)
+        var document = DayDocument(dateKey: "2026-08-20", items: [parent, child, next], updatedAt: fixedDate)
+        let splitID = OutlineEditor.splitItem(
+            in: &document,
+            id: parent.id,
+            replacingUTF16Range: NSRange(location: 0, length: 0),
+            now: fixedDate
+        )
+        try expect(document.items.map(\.text) == ["", "客诉专项", "问题查看", "客诉梳理"], "line-start Return should split at the caret")
+        try expect(document.items.map(\.depth) == [0, 0, 1, 0], "existing descendants should follow the moved parent text")
+        try expect(document.items[1].id == splitID, "split should return the right-hand row ID")
+    },
     TestCase("indent and outdent move subtree") {
         let first = OutlineItem(depth: 0, text: "first", createdAt: fixedDate, updatedAt: fixedDate)
         let second = OutlineItem(depth: 0, text: "second", createdAt: fixedDate, updatedAt: fixedDate)

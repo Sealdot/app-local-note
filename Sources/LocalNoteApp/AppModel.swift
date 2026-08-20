@@ -47,6 +47,8 @@ final class AppModel: ObservableObject {
     private var syncInFlight = false
     private var syncRequestedWhileInFlight = false
     private var documentRevision: UInt64 = 0
+    private var undoStack: [DayDocument] = []
+    private var redoStack: [DayDocument] = []
     private var activeEditingItemID: UUID?
     private var syncDeferredUntilEditingEnds = false
     private let networkMonitor: NWPathMonitor?
@@ -127,8 +129,46 @@ final class AppModel: ObservableObject {
         return insertedID
     }
 
+    @discardableResult
+    func commitItem(id: UUID, replacingUTF16Range selection: NSRange) -> UUID? {
+        var insertedID: UUID?
+        mutate { document in
+            guard let item = document.items.first(where: { $0.id == id }) else { return }
+            let textLength = item.text.utf16.count
+            if selection.location < textLength || selection.length > 0 {
+                insertedID = OutlineEditor.splitItem(
+                    in: &document,
+                    id: id,
+                    replacingUTF16Range: selection
+                )
+            } else {
+                insertedID = OutlineEditor.insertPeer(in: &document, after: id)
+            }
+        }
+        return insertedID
+    }
+
     func updateText(id: UUID, text: String) {
         mutate { OutlineEditor.updateText(in: &$0, id: id, text: text) }
+    }
+
+    var canUndo: Bool { !undoStack.isEmpty }
+    var canRedo: Bool { !redoStack.isEmpty }
+
+    @discardableResult
+    func undo() -> Bool {
+        guard let previous = undoStack.popLast() else { return false }
+        redoStack.append(document)
+        restoreFromHistory(previous)
+        return true
+    }
+
+    @discardableResult
+    func redo() -> Bool {
+        guard let next = redoStack.popLast() else { return false }
+        undoStack.append(document)
+        restoreFromHistory(next)
+        return true
     }
 
     func beginEditing(id: UUID) {
@@ -327,6 +367,7 @@ final class AppModel: ObservableObject {
                     DispatchQueue.main.async {
                         if self.dateKey == context.dateKey {
                             self.document = pulled
+                            self.clearHistory()
                             self.documentRevision &+= 1
                         }
                         self.finishSync(state: .synced)
@@ -405,10 +446,26 @@ final class AppModel: ObservableObject {
     private func mutate(_ mutation: (inout DayDocument) -> Void) {
         var updated = document
         mutation(&updated)
+        guard updated != document else { return }
+        undoStack.append(document)
+        if undoStack.count > 100 { undoStack.removeFirst(undoStack.count - 100) }
+        redoStack.removeAll()
         document = updated
         documentRevision &+= 1
         scheduleSave()
         scheduleSync()
+    }
+
+    private func restoreFromHistory(_ restored: DayDocument) {
+        document = restored
+        documentRevision &+= 1
+        scheduleSave()
+        scheduleSync()
+    }
+
+    private func clearHistory() {
+        undoStack.removeAll()
+        redoStack.removeAll()
     }
 
     private func scheduleSave() {
@@ -431,6 +488,7 @@ final class AppModel: ObservableObject {
         self.dateKey = dateKey
         documentRevision &+= 1
         activeEditingItemID = nil
+        clearHistory()
         do {
             document = try dayStore.load(dateKey: dateKey)
             syncState = notionPageID.isEmpty || notionToken.isEmpty ? .notConfigured : .idle
@@ -488,6 +546,7 @@ final class AppModel: ObservableObject {
                 try dayStore.save(pulled)
                 persistSnapshot(dateKey: dateKey, markdown: remoteMarkdown)
                 document = pulled
+                clearHistory()
                 documentRevision &+= 1
                 finishSync(state: .synced)
             } catch {

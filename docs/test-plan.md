@@ -31,11 +31,15 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - Return preserves numbered style and advances the visible prefix, while
   Backspace on an empty numbered child returns it to a parent-level checkbox
   without deletion;
+- Return at the start or middle of a parent row splits at the caret before its
+  descendants; Return at line end keeps adding a peer after the subtree;
 - indenting a new empty checkbox peer automatically creates a numbered child,
   matching the checkbox-parent → numbered-children structure in the reference;
 - a second numbered indent uses alphabetic prefixes and Shift-Tab returns to
   the numeric level;
 - numbered sequences restart after a non-numbered peer at the same depth.
+- Command-Z and Command-Shift-Z undo and redo both text edits and structural
+  changes such as a caret split.
 
 ### Persistence
 

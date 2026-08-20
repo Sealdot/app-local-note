@@ -289,7 +289,9 @@ struct ContentView: View {
                     isStruck: item.isStruck,
                     text: model.itemBinding(id: item.id),
                     focusRequest: focusRequest,
-                    onCommit: { addPeerAndFocus(after: item.id) },
+                    onCommit: { selection in
+                        commitAndFocus(itemID: item.id, replacingUTF16Range: selection)
+                    },
                     onDeleteEmpty: { deleteAndFocus(item.id) },
                     onExitStructuredItem: { model.exitStructuredItem(id: item.id) },
                     onApplyTypingShortcut: { kind in
@@ -297,6 +299,12 @@ struct ContentView: View {
                     },
                     onMoveVertical: { direction, caretOffset in
                         moveFocus(from: item.id, direction: direction, caretOffset: caretOffset)
+                    },
+                    onUndo: { caretOffset in
+                        performHistory(.undo, from: item.id, caretOffset: caretOffset)
+                    },
+                    onRedo: { caretOffset in
+                        performHistory(.redo, from: item.id, caretOffset: caretOffset)
                     },
                     onIndent: { model.indent(id: item.id) },
                     onOutdent: { model.outdent(id: item.id) },
@@ -340,11 +348,49 @@ struct ContentView: View {
         requestFocus(itemID: insertedID, caretOffset: 0)
     }
 
+    private func commitAndFocus(itemID: UUID, replacingUTF16Range selection: NSRange) {
+        guard let insertedID = model.commitItem(
+            id: itemID,
+            replacingUTF16Range: selection
+        ) else { return }
+        requestFocus(itemID: insertedID, caretOffset: 0)
+    }
+
     private func moveFocus(from id: UUID, direction: Int, caretOffset: Int) {
         guard let index = model.document.items.firstIndex(where: { $0.id == id }) else { return }
         let targetIndex = index + direction
         guard model.document.items.indices.contains(targetIndex) else { return }
         requestFocus(itemID: model.document.items[targetIndex].id, caretOffset: caretOffset)
+    }
+
+    private func performHistory(
+        _ direction: OutlineHistoryDirection,
+        from itemID: UUID,
+        caretOffset: Int
+    ) -> OutlineHistoryFocus? {
+        let previousItems = model.document.items
+        let previousIndex = previousItems.firstIndex(where: { $0.id == itemID })
+        let changed = direction == .undo ? model.undo() : model.redo()
+        guard changed, !model.document.items.isEmpty else {
+            if model.document.items.isEmpty { focusRequest = nil }
+            return nil
+        }
+
+        let previousIDs = Set(previousItems.map(\.id))
+        let addedItems = model.document.items.filter { !previousIDs.contains($0.id) }
+        let target: OutlineItem?
+        if direction == .redo, let added = addedItems.first {
+            target = added
+        } else if let existing = model.document.items.first(where: { $0.id == itemID }) {
+            target = existing
+        } else {
+            let fallbackIndex = min(max(0, (previousIndex ?? 1) - 1), model.document.items.count - 1)
+            target = model.document.items[fallbackIndex]
+        }
+        guard let target = target else { return nil }
+        let resolvedOffset = min(max(0, caretOffset), target.text.utf16.count)
+        requestFocus(itemID: target.id, caretOffset: resolvedOffset)
+        return OutlineHistoryFocus(itemID: target.id, caretOffset: resolvedOffset, text: target.text)
     }
 
     private func deleteAndFocus(_ id: UUID) {
@@ -480,17 +526,30 @@ private struct OutlineFocusRequest: Equatable {
     let caretOffset: Int
 }
 
+private enum OutlineHistoryDirection {
+    case undo
+    case redo
+}
+
+private struct OutlineHistoryFocus {
+    let itemID: UUID
+    let caretOffset: Int
+    let text: String
+}
+
 private struct OutlineEditorField: NSViewRepresentable {
     let itemID: UUID
     let kind: OutlineItemKind
     let isStruck: Bool
     @Binding var text: String
     let focusRequest: OutlineFocusRequest?
-    let onCommit: () -> Void
+    let onCommit: (NSRange) -> Void
     let onDeleteEmpty: () -> Void
     let onExitStructuredItem: () -> Void
     let onApplyTypingShortcut: (OutlineItemKind) -> Void
     let onMoveVertical: (_ direction: Int, _ caretOffset: Int) -> Void
+    let onUndo: (_ caretOffset: Int) -> OutlineHistoryFocus?
+    let onRedo: (_ caretOffset: Int) -> OutlineHistoryFocus?
     let onIndent: () -> Void
     let onOutdent: () -> Void
     let onToggleStrike: () -> Void
@@ -515,6 +574,8 @@ private struct OutlineEditorField: NSViewRepresentable {
         field.cell?.isScrollable = false
         field.delegate = context.coordinator
         field.onToggleStrike = onToggleStrike
+        field.onUndo = onUndo
+        field.onRedo = onRedo
         field.onBeginEditing = onBeginEditing
         field.onEndEditing = onEndEditing
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -525,6 +586,8 @@ private struct OutlineEditorField: NSViewRepresentable {
         context.coordinator.parent = self
         field.identifier = NSUserInterfaceItemIdentifier(itemID.uuidString)
         (field as? OutlineTextField)?.onToggleStrike = onToggleStrike
+        (field as? OutlineTextField)?.onUndo = onUndo
+        (field as? OutlineTextField)?.onRedo = onRedo
         (field as? OutlineTextField)?.onBeginEditing = onBeginEditing
         (field as? OutlineTextField)?.onEndEditing = onEndEditing
         if field.currentEditor() == nil, field.stringValue != text {
@@ -582,7 +645,8 @@ private struct OutlineEditorField: NSViewRepresentable {
                 }
                 return true
             case #selector(NSResponder.insertNewline(_:)):
-                DispatchQueue.main.async { self.parent.onCommit() }
+                let selection = textView.selectedRange()
+                DispatchQueue.main.async { self.parent.onCommit(selection) }
                 return true
             case #selector(NSResponder.insertTab(_:)):
                 DispatchQueue.main.async { self.parent.onIndent() }
@@ -599,6 +663,8 @@ private struct OutlineEditorField: NSViewRepresentable {
 
 private final class OutlineTextField: NSTextField {
     var onToggleStrike: (() -> Void)?
+    var onUndo: ((Int) -> OutlineHistoryFocus?)?
+    var onRedo: ((Int) -> OutlineHistoryFocus?)?
     var onBeginEditing: (() -> Void)?
     var onEndEditing: (() -> Void)?
     private var pendingFocusRequest: OutlineFocusRequest?
@@ -713,5 +779,25 @@ private final class OutlineTextField: NSTextField {
 
     @objc func toggleLocalNoteStrikethrough(_ sender: Any?) {
         onToggleStrike?()
+    }
+
+    @objc func undoLocalNote(_ sender: Any?) {
+        performHistoryAction(onUndo)
+    }
+
+    @objc func redoLocalNote(_ sender: Any?) {
+        performHistoryAction(onRedo)
+    }
+
+    private func performHistoryAction(_ action: ((Int) -> OutlineHistoryFocus?)?) {
+        guard let action = action else { return }
+        let editor = currentEditor() as? NSTextView
+        let caretOffset = editor?.selectedRange().location ?? stringValue.utf16.count
+        guard let focus = action(caretOffset) else { return }
+        guard focus.itemID.uuidString == identifier?.rawValue else { return }
+        stringValue = focus.text
+        editor?.string = focus.text
+        editor?.setSelectedRange(NSRange(location: focus.caretOffset, length: 0))
+        invalidateWrappingHeight()
     }
 }

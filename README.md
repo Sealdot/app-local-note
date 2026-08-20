@@ -42,7 +42,8 @@ self-use workflow works with Command Line Tools alone.
 
 - long items wrap to as many lines as needed and grow while editing;
 - `Up` / `Down`: move to the previous or next item;
-- `Return`: add and focus a peer item;
+- `Return`: split at the caret and focus the right-hand item; at line end, add
+  a peer after the current item's descendants;
 - `Tab` / `Shift-Tab`: indent or outdent the current item;
 - after a top-level checkbox, press `Return` then `Tab` on the empty row to
   create its first numbered child (`1.`);
@@ -53,6 +54,7 @@ self-use workflow works with Command Line Tools alone.
   checkbox to-do;
 - `Command-Shift-S`: toggle strikethrough for the current item;
 - `Backspace`: edit text normally, then remove an empty row and return to the previous item;
+- `Command-Z` / `Command-Shift-Z`: undo or redo text and outline-structure changes;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.
 
 ## Calendar overview

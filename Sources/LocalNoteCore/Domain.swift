@@ -152,6 +152,37 @@ public enum OutlineEditor {
         return item.id
     }
 
+    /// Splits an item at the field editor's UTF-16 selection. The right-hand
+    /// item is inserted immediately after the edited row so any existing
+    /// descendants continue to follow the text that was moved to that row.
+    public static func splitItem(
+        in document: inout DayDocument,
+        id: UUID,
+        replacingUTF16Range selection: NSRange,
+        now: Date = Date()
+    ) -> UUID? {
+        guard let index = document.items.firstIndex(where: { $0.id == id }) else { return nil }
+        let original = document.items[index]
+        let text = original.text as NSString
+        let location = min(max(0, selection.location), text.length)
+        let length = min(max(0, selection.length), text.length - location)
+        let prefix = text.substring(to: location)
+        let suffix = text.substring(from: location + length)
+
+        document.items[index].text = prefix
+        document.items[index].updatedAt = now
+        let item = OutlineItem(
+            depth: original.depth,
+            kind: original.kind,
+            text: suffix,
+            createdAt: now,
+            updatedAt: now
+        )
+        document.items.insert(item, at: index + 1)
+        document.updatedAt = now
+        return item.id
+    }
+
     public static func updateText(
         in document: inout DayDocument,
         id: UUID,
