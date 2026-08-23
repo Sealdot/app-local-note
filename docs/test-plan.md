@@ -1,5 +1,21 @@
 # Test plan
 
+## Regression lesson
+
+The original 20-test suite compiled only `LocalNoteCore`. It could validate
+documents, Markdown, persistence, and HTTP request construction, but it never
+compiled or rendered `AppModel`, `ContentView`, or the menu command setup. A
+green result therefore said nothing about macOS first-responder behavior or
+keyboard shortcuts in the status-item popover. The direct test build now
+includes those app sources and exercises the real SwiftUI text controls.
+
+The first sync tests also assumed date sections used Markdown headings such as
+`## 20260814`. The real Notion page returned a plain date parent, tab-indented
+children, and `<empty-block/>` separators. The API request succeeded, so the
+old suite and UI reported success even though the selected day decoded as
+empty. Regression fixtures now mirror that real response structure, including
+empty to-do blocks and Notion's sequential numbered-list markers.
+
 ## Unit tests
 
 ### Domain and editing
@@ -10,6 +26,20 @@
 - completing a checkbox also strikes the row; unchecking preserves explicit
   user strike intent correctly;
 - decoding older files tolerates missing optional fields.
+- typing `1. ` on an empty checkbox row converts it to a numbered item without
+  leaving the marker in its text;
+- Return preserves numbered style and advances the visible prefix, while
+  Backspace on an empty numbered child returns it to a parent-level checkbox
+  without deletion;
+- Return at the start or middle of a parent row splits at the caret before its
+  descendants; Return at line end keeps adding a peer after the subtree;
+- indenting a new empty checkbox peer automatically creates a numbered child,
+  matching the checkbox-parent → numbered-children structure in the reference;
+- a second numbered indent uses alphabetic prefixes and Shift-Tab returns to
+  the numeric level;
+- numbered sequences restart after a non-numbered peer at the same depth.
+- Command-Z and Command-Shift-Z undo and redo both text edits and structural
+  changes such as a caret split.
 
 ### Persistence
 
@@ -18,6 +48,33 @@
 - corrupt files produce a recoverable error and are not overwritten;
 - filenames are derived from local calendar dates, not UTC rollover;
 - loading one day does not enumerate or decode historical day files.
+- opening a calendar range reads only its fixed 42 date keys and uses the live
+  in-memory document for the selected date.
+
+### Calendar overview
+
+- a month grid is Monday-first, contains exactly 42 days, and crosses month and
+  year boundaries without changing shape;
+- month navigation starts from day one so short months cannot be skipped;
+- only non-empty checkbox rows count as to-dos;
+- activity levels distinguish no to-dos, scheduled-but-incomplete days, and
+  1, 2–3, 4–6, and 7+ completed to-dos;
+- historical summaries load from their own day files while unsaved edits to the
+  selected day appear immediately.
+
+### Appearance themes
+
+- appearance defaults to Follow System, System Native, and Blue;
+- mode, theme, and accent changes persist immediately in `UserDefaults`;
+- invalid future or removed raw values recover to safe defaults;
+- forced light and dark modes override the supplied system appearance while
+  Follow System continues to track it;
+- all four curated themes provide paired light and dark palettes;
+- all six accents produce six distinct calendar levels, with readable text on
+  the two highest intensities;
+- appearance changes and reset do not mutate note content or Notion settings;
+- the settings gallery, midnight outline, and paper calendar are rendered at
+  440 × 560 points for visual comparison.
 
 ### Markdown
 
@@ -25,14 +82,25 @@
 - tabs encode hierarchy and are bounded on decode;
 - checked and strikethrough states are preserved;
 - Markdown control characters are escaped;
-- an empty day produces an empty body.
+- an empty day produces an empty body;
+- plain date parents unindent their Notion children for the local outline;
+- `<empty-block/>` separators never become visible rows;
+- empty Notion to-do blocks remain empty checkboxes.
 
 ### Synchronization
 
 - unchanged documents perform no write;
 - local-only edits push;
 - remote-only edits pull;
+- repeated pulls normalize Notion numbering without false conflicts or writes;
+- bare empty numbered or bullet markers returned by Notion normalize without
+  false conflicts, including when local edits need to be pushed;
 - simultaneous changes produce a conflict and never overwrite;
+- choosing Notion resolves a conflict without PATCH;
+- choosing local re-fetches the page before one guarded PATCH;
+- duplicate passive triggers do not queue redundant synchronization;
+- an in-flight remote pull never replaces a newer local edit;
+- requests time out instead of leaving the UI in a permanent syncing state;
 - 401, 403, 404, 409, 429, and transient 5xx responses map to actionable states;
 - authorization headers are present in requests but absent from logs.
 
@@ -42,6 +110,23 @@
 - Keychain save/read/delete is tested with a test-only service name;
 - a packaged app has `LSUIElement=true` and launches without a Dock window;
 - offline launch, edit, quit, and relaunch preserves content.
+
+## UI regression coverage
+
+The test executable renders the real SwiftUI outline in an AppKit window and
+makes its `NSTextField` the first responder. It dispatches `Command-V` and
+`Command-Shift-S` through the application Edit menu, then sends real Up, Down,
+Backspace, Tab, Shift-Tab, and Return key events through the field editor. The
+tests verify that paste and strikethrough reach `AppModel`, vertical navigation
+moves focus without changing content, Return focuses its inserted row, and
+Backspace returns focus to the preceding row after deletion. Long-text coverage
+asserts that a row wraps without a line limit, expands both on initial render
+and during active editing, does not overlap the next row, and keeps the field
+editor focused. A dedicated input method test keeps marked text, the marked
+range, and first-responder focus alive while save and sync states publish view
+updates. These checks prevent keyboard and layout regressions that model-only
+tests cannot detect. Release acceptance also includes a manual pass through the
+real status-item popover using an isolated data directory.
 
 ## Performance and longevity
 
@@ -59,11 +144,6 @@
 Before pushing a development branch:
 
 ```sh
-swift test
-swift build -c release
+./scripts/verify.sh
 ./scripts/performance-smoke.sh
-./scripts/package-app.sh
-plutil -lint build/LocalNote.app/Contents/Info.plist
-codesign --verify build/LocalNote.app
 ```
-

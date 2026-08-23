@@ -16,4 +16,5 @@ Secrets.xcconfig
 *.sqlite-shm
 *.sqlite-wal
 LocalData/
-
+tmp/
+Resources/AppIcon.iconset/

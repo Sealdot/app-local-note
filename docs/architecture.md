@@ -13,10 +13,10 @@ lifecycle.
 StatusItem / Popover
         |
         v
-DailyOutlineView <-> AppModel
-        |               |
-        v               v
-DayFileStore       SyncCoordinator
+DailyOutlineView <-> AppModel <-> AppearancePreferences
+        |               |                 |
+        v               v                 v
+DayFileStore       SyncCoordinator    UserDefaults
   JSON/day          |          |
                     v          v
                  Keychain   NotionClient
@@ -52,6 +52,15 @@ Before pushing, the coordinator fetches the remote document:
 2. local equals the base: accept the remote content;
 3. both changed: stop and expose a conflict instead of overwriting either side.
 
+The conflict footer offers two explicit resolutions. "以 Notion 为准" fetches
+the latest remote day and replaces only the local day. "以本地为准" first
+re-fetches the full page, then replaces only the selected remote date section
+with the local day. Neither choice runs without a user click.
+
+If Notion reports a truncated Markdown response, synchronization stops before
+any PATCH. Replacing a page from a partial response could otherwise erase
+content that was not returned by the API.
+
 Automatic work is event driven: application launch, opening the popover,
 local edits after a debounce, manual refresh, and network restoration. There
 is no recurring polling timer. A fully quit application synchronizes on its
@@ -61,6 +70,15 @@ next launch.
 
 The Notion token is stored as a generic password in macOS Keychain. Page IDs
 and preferences may use `UserDefaults`; note content and tokens may not.
+
+### Appearance
+
+Appearance preferences are local, lightweight values stored in `UserDefaults`.
+`LocalNoteTheme` resolves the selected theme, light/dark mode, and accent into
+semantic colors for backgrounds, text, separators, controls, and the calendar
+activity ramp. SwiftUI views consume the resolved theme directly; the AppKit
+outline editor receives matching text and insertion-point colors explicitly.
+No theme value is written to daily documents or synchronized to Notion.
 
 ## Performance budgets
 
@@ -76,4 +94,3 @@ These are engineering targets, not platform guarantees:
 
 The app must not retain URL responses, historical documents, or finished sync
 tasks after completion.
-
