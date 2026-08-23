@@ -5,6 +5,7 @@ import LocalNoteCore
 #endif
 
 struct ContentView: View {
+    @Environment(\.colorScheme) private var systemColorScheme
     @ObservedObject var model: AppModel
     @State private var showingSettings: Bool
     @State private var showingCalendar: Bool
@@ -28,7 +29,7 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            themedDivider
             if showingSettings {
                 settings
             } else if showingCalendar {
@@ -36,17 +37,33 @@ struct ContentView: View {
             } else {
                 outline
             }
-            Divider()
+            themedDivider
             footer
         }
         .frame(width: 440, height: 560)
-        .background(Color(NSColor.windowBackgroundColor))
+        .foregroundColor(resolvedTheme.primaryText)
+        .background(resolvedTheme.background)
+        .accentColor(resolvedTheme.accent)
+        .preferredColorScheme(model.appearance.mode.preferredColorScheme)
         .onAppear {
             if showingCalendar { refreshCalendar() }
         }
         .onChange(of: model.document) { _ in
             if showingCalendar { refreshCalendar() }
         }
+    }
+
+    private var resolvedTheme: LocalNoteTheme {
+        LocalNoteTheme.resolve(
+            preferences: model.appearance,
+            systemColorScheme: systemColorScheme
+        )
+    }
+
+    private var themedDivider: some View {
+        Rectangle()
+            .fill(resolvedTheme.separator)
+            .frame(height: 1)
     }
 
     private var header: some View {
@@ -77,6 +94,7 @@ struct ContentView: View {
             .buttonStyle(PlainButtonStyle())
             .help(showingSettings ? "返回清单" : "设置")
         }
+        .foregroundColor(resolvedTheme.primaryText)
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
     }
@@ -105,7 +123,7 @@ struct ContentView: View {
                 ForEach(Array(["一", "二", "三", "四", "五", "六", "日"].enumerated()), id: \.offset) { entry in
                     Text(entry.element)
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(resolvedTheme.secondaryText)
                         .frame(maxWidth: .infinity)
                 }
             }
@@ -132,7 +150,7 @@ struct ContentView: View {
                         .fill(activityColor(level: level))
                         .overlay(
                             RoundedRectangle(cornerRadius: 3)
-                                .stroke(Color.secondary.opacity(level == 0 ? 0.25 : 0), lineWidth: 1)
+                                .stroke(resolvedTheme.separator.opacity(level == 0 ? 1 : 0), lineWidth: 1)
                         )
                         .frame(width: 14, height: 14)
                 }
@@ -141,7 +159,7 @@ struct ContentView: View {
                 Text("颜色越深，完成越多")
             }
             .font(.caption2)
-            .foregroundColor(.secondary)
+            .foregroundColor(resolvedTheme.secondaryText)
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
@@ -149,20 +167,27 @@ struct ContentView: View {
 
     private func calendarDayButton(_ day: CalendarDay) -> some View {
         let summary = calendarSummaries[day.dateKey]
+        let level = summary?.intensityLevel ?? 0
         let isSelected = day.dateKey == model.dateKey
         let isToday = day.dateKey == DateKey.make(from: Date())
         return Button(action: { selectCalendarDay(day.dateKey) }) {
             ZStack {
                 RoundedRectangle(cornerRadius: 7)
-                    .fill(activityColor(level: summary?.intensityLevel ?? 0))
+                    .fill(activityColor(level: level))
                 RoundedRectangle(cornerRadius: 7)
                     .stroke(
-                        isSelected ? Color.accentColor : Color.secondary.opacity(isToday ? 0.7 : 0.12),
+                        isSelected
+                            ? resolvedTheme.accent
+                            : resolvedTheme.secondaryText.opacity(isToday ? 0.7 : 0.18),
                         lineWidth: isSelected ? 2 : 1
                     )
                 Text("\(day.dayNumber)")
                     .font(.system(size: 12, weight: isSelected || isToday ? .semibold : .regular))
-                    .foregroundColor(day.isInDisplayedMonth ? .primary : .secondary)
+                    .foregroundColor(
+                        day.isInDisplayedMonth
+                            ? resolvedTheme.activityTextColor(level: level)
+                            : resolvedTheme.secondaryText
+                    )
                     .opacity(day.isInDisplayedMonth ? 1 : 0.45)
             }
             .frame(maxWidth: .infinity, minHeight: 42)
@@ -187,14 +212,7 @@ struct ContentView: View {
     }
 
     private func activityColor(level: Int) -> Color {
-        switch level {
-        case 1: return Color.accentColor.opacity(0.14)
-        case 2: return Color.accentColor.opacity(0.28)
-        case 3: return Color.accentColor.opacity(0.44)
-        case 4: return Color.accentColor.opacity(0.62)
-        case 5: return Color.accentColor.opacity(0.82)
-        default: return Color.primary.opacity(0.025)
-        }
+        resolvedTheme.activityColor(level: level)
     }
 
     private func activityHelp(for day: CalendarDay, summary: DayActivitySummary?) -> String {
@@ -240,9 +258,9 @@ struct ContentView: View {
                     Spacer()
                     Image(systemName: "checklist")
                         .font(.system(size: 32, weight: .light))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(resolvedTheme.secondaryText)
                     Text("今天还没有记录")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(resolvedTheme.secondaryText)
                     Button("添加第一项", action: addAndFocusItem)
                     Spacer()
                 }
@@ -274,19 +292,23 @@ struct ContentView: View {
             if item.kind == .checkbox {
                 Button(action: { model.toggleCompletion(id: item.id) }) {
                     Image(systemName: item.checked ? "checkmark.square.fill" : "square")
-                        .foregroundColor(item.checked ? .accentColor : .secondary)
+                        .foregroundColor(item.checked ? resolvedTheme.accent : resolvedTheme.secondaryText)
                 }
                 .buttonStyle(PlainButtonStyle())
             } else {
                 Text(model.displayPrefix(for: item))
                     .frame(width: 24, alignment: .trailing)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(resolvedTheme.secondaryText)
             }
             ZStack {
                 OutlineEditorField(
                     itemID: item.id,
                     kind: item.kind,
                     isStruck: item.isStruck,
+                    textColor: item.isStruck
+                        ? resolvedTheme.completedTextNSColor
+                        : resolvedTheme.primaryTextNSColor,
+                    insertionPointColor: resolvedTheme.accentNSColor,
                     text: model.itemBinding(id: item.id),
                     focusRequest: focusRequest,
                     onCommit: { selection in
@@ -317,7 +339,6 @@ struct ContentView: View {
                 )
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity)
-                .opacity(item.isStruck ? 0.55 : 1)
             }
         }
         .padding(.vertical, 4)
@@ -422,8 +443,10 @@ struct ContentView: View {
     private var settings: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                appearanceSettingsSection
+                themedDivider
                 notionSettingsSection
-                Divider()
+                themedDivider
                 lightweightSettingsSection
                 Spacer()
                 Button("退出 Local Note") {
@@ -431,8 +454,105 @@ struct ContentView: View {
                 }
                 .foregroundColor(.red)
             }
-            .padding(16)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 16)
         }
+    }
+
+    private var appearanceSettingsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("外观")
+                .font(.headline)
+
+            Picker(
+                "显示模式",
+                selection: Binding(
+                    get: { model.appearance.mode },
+                    set: model.setAppearanceMode
+                )
+            ) {
+                ForEach(AppearanceMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .pickerStyle(SegmentedPickerStyle())
+            .labelsHidden()
+            .accessibility(label: Text("显示模式"))
+
+            Text("主题")
+                .font(.caption)
+                .foregroundColor(resolvedTheme.secondaryText)
+
+            LazyVGrid(
+                columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible())],
+                spacing: 12
+            ) {
+                ForEach(ThemeID.allCases) { themeID in
+                    Button(action: { model.setTheme(themeID) }) {
+                        ThemePreviewTile(
+                            themeID: themeID,
+                            accentID: model.appearance.accent,
+                            isSelected: model.appearance.theme == themeID
+                        )
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                    .accessibility(label: Text("\(themeID.title)主题"))
+                    .accessibility(value: Text(model.appearance.theme == themeID ? "已选择" : "未选择"))
+                    .help("切换到\(themeID.title)主题")
+                }
+            }
+
+            Text("强调色")
+                .font(.caption)
+                .foregroundColor(resolvedTheme.secondaryText)
+
+            HStack(spacing: 12) {
+                ForEach(AccentID.allCases) { accentID in
+                    accentButton(accentID)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Button(action: model.resetAppearance) {
+                Text("恢复默认")
+            }
+            .buttonStyle(PlainButtonStyle())
+            .foregroundColor(
+                model.appearance == .standard
+                    ? resolvedTheme.secondaryText
+                    : resolvedTheme.accent
+            )
+            .disabled(model.appearance == .standard)
+            .help("恢复跟随系统、系统原生主题和蓝色强调色")
+        }
+    }
+
+    private func accentButton(_ accentID: AccentID) -> some View {
+        let isSelected = model.appearance.accent == accentID
+        let swatchColor = Color(
+            LocalNoteTheme.accentColor(accentID, colorScheme: resolvedTheme.colorScheme)
+        )
+        return Button(action: { model.setAccent(accentID) }) {
+            ZStack {
+                Circle()
+                    .fill(swatchColor)
+                    .frame(width: 22, height: 22)
+                if isSelected {
+                    Circle()
+                        .stroke(resolvedTheme.background, lineWidth: 2)
+                        .frame(width: 24, height: 24)
+                    Circle()
+                        .stroke(swatchColor, lineWidth: 2)
+                        .frame(width: 28, height: 28)
+                }
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Circle())
+        }
+        .buttonStyle(PlainButtonStyle())
+        .accessibility(label: Text("\(accentID.title)强调色"))
+        .accessibility(value: Text(isSelected ? "已选择" : "未选择"))
+        .help("使用\(accentID.title)强调色")
     }
 
     private var notionSettingsSection: some View {
@@ -441,15 +561,17 @@ struct ContentView: View {
                 .font(.headline)
             Text("填写你的工作记录根页面 ID。Local Note 会在该页面中按日期标题更新当天内容。")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(resolvedTheme.secondaryText)
             Text("页面 ID 或 URL")
                 .font(.caption)
             TextField("Notion 页面 ID", text: $model.notionPageID)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
+                .background(resolvedTheme.surface)
             Text("Token")
                 .font(.caption)
             SecureField("ntn_…", text: $model.notionToken)
                 .textFieldStyle(RoundedBorderTextFieldStyle())
+                .background(resolvedTheme.surface)
             HStack {
                 Button("保存设置") { model.saveSettings() }
                 Button("保存并同步") {
@@ -477,7 +599,7 @@ struct ContentView: View {
             Text(model.syncState.label)
                 .font(.caption)
                 .lineLimit(1)
-                .foregroundColor(.secondary)
+                .foregroundColor(resolvedTheme.secondaryText)
             Spacer()
             if !showingSettings {
                 if model.syncState == .conflict {
@@ -515,8 +637,105 @@ struct ContentView: View {
         case .synced: return .green
         case .syncing, .saving: return .orange
         case .conflict, .error: return .red
-        case .notConfigured, .idle: return .secondary
+        case .notConfigured, .idle: return resolvedTheme.secondaryText
         }
+    }
+}
+
+private struct ThemePreviewTile: View {
+    let themeID: ThemeID
+    let accentID: AccentID
+    let isSelected: Bool
+
+    private var lightTheme: LocalNoteTheme {
+        LocalNoteTheme.resolve(
+            preferences: AppearancePreferences(mode: .light, theme: themeID, accent: accentID),
+            systemColorScheme: .light
+        )
+    }
+
+    private var darkTheme: LocalNoteTheme {
+        LocalNoteTheme.resolve(
+            preferences: AppearancePreferences(mode: .dark, theme: themeID, accent: accentID),
+            systemColorScheme: .dark
+        )
+    }
+
+    var body: some View {
+        VStack(spacing: 5) {
+            ZStack(alignment: .bottomTrailing) {
+                HStack(spacing: 0) {
+                    miniOutline(theme: lightTheme)
+                    miniOutline(theme: darkTheme)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 7))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7)
+                        .stroke(isSelected ? lightTheme.accent : lightTheme.separator, lineWidth: isSelected ? 2 : 1)
+                )
+
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 17))
+                        .foregroundColor(lightTheme.accent)
+                        .background(Circle().fill(lightTheme.background))
+                        .padding(5)
+                }
+            }
+            .frame(height: 104)
+
+            Text(themeID.title)
+                .font(.caption)
+        }
+        .contentShape(Rectangle())
+    }
+
+    private func miniOutline(theme: LocalNoteTheme) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 3) {
+                Image(systemName: "chevron.left")
+                Text("20260819")
+                    .font(.system(size: 5, weight: .semibold))
+                Image(systemName: "chevron.right")
+                Spacer(minLength: 1)
+                Image(systemName: "calendar")
+                Image(systemName: "gearshape")
+            }
+            .font(.system(size: 5, weight: .semibold))
+            .foregroundColor(theme.primaryText.opacity(0.85))
+
+            Rectangle()
+                .fill(theme.separator)
+                .frame(height: 1)
+
+            HStack(spacing: 4) {
+                Image(systemName: "square")
+                    .font(.system(size: 7))
+                Capsule().frame(width: 34, height: 3)
+            }
+            ForEach(0..<2, id: \.self) { index in
+                HStack(spacing: 4) {
+                    Image(systemName: index == 1 ? "checkmark.square.fill" : "square")
+                        .font(.system(size: 7))
+                        .foregroundColor(index == 1 ? theme.accent : theme.secondaryText)
+                    Capsule()
+                        .frame(width: CGFloat(28 + index * 8), height: 3)
+                        .foregroundColor(theme.secondaryText.opacity(index == 1 ? 0.65 : 0.9))
+                }
+            }
+            Spacer(minLength: 0)
+            HStack(spacing: 2) {
+                ForEach(1..<6, id: \.self) { level in
+                    RoundedRectangle(cornerRadius: 1.5)
+                        .fill(theme.activityColor(level: level))
+                        .frame(width: 8, height: 5)
+                }
+            }
+        }
+        .foregroundColor(theme.secondaryText)
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .background(theme.background)
     }
 }
 
@@ -541,6 +760,8 @@ private struct OutlineEditorField: NSViewRepresentable {
     let itemID: UUID
     let kind: OutlineItemKind
     let isStruck: Bool
+    let textColor: NSColor
+    let insertionPointColor: NSColor
     @Binding var text: String
     let focusRequest: OutlineFocusRequest?
     let onCommit: (NSRange) -> Void
@@ -564,6 +785,7 @@ private struct OutlineEditorField: NSViewRepresentable {
         let field = OutlineTextField()
         field.identifier = NSUserInterfaceItemIdentifier(itemID.uuidString)
         field.placeholderString = "待办事项"
+        field.textColor = textColor
         field.isBordered = false
         field.drawsBackground = false
         field.focusRingType = .none
@@ -590,6 +812,10 @@ private struct OutlineEditorField: NSViewRepresentable {
         (field as? OutlineTextField)?.onRedo = onRedo
         (field as? OutlineTextField)?.onBeginEditing = onBeginEditing
         (field as? OutlineTextField)?.onEndEditing = onEndEditing
+        (field as? OutlineTextField)?.applyTextAppearance(
+            textColor: textColor,
+            insertionPointColor: insertionPointColor
+        )
         if field.currentEditor() == nil, field.stringValue != text {
             field.stringValue = text
             (field as? OutlineTextField)?.invalidateWrappingHeight()
@@ -731,11 +957,32 @@ private final class OutlineTextField: NSTextField {
             if let font = font {
                 attributed.addAttribute(.font, value: font, range: range)
             }
+            attributed.addAttribute(.foregroundColor, value: textColor ?? NSColor.labelColor, range: range)
             if enabled {
                 attributed.addAttribute(styleKey, value: styleValue, range: range)
             }
         }
         attributedStringValue = attributed
+    }
+
+    func applyTextAppearance(
+        textColor: NSColor,
+        insertionPointColor: NSColor
+    ) {
+        self.textColor = textColor
+        guard let editor = currentEditor() as? NSTextView else { return }
+        editor.textColor = textColor
+        editor.insertionPointColor = insertionPointColor
+        if let storage = editor.textStorage, storage.length > 0 {
+            storage.addAttribute(
+                .foregroundColor,
+                value: textColor,
+                range: NSRange(location: 0, length: storage.length)
+            )
+        }
+        var attributes = editor.typingAttributes
+        attributes[.foregroundColor] = textColor
+        editor.typingAttributes = attributes
     }
 
     func applyFocusRequest(_ request: OutlineFocusRequest?) {

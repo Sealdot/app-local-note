@@ -62,6 +62,20 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - historical summaries load from their own day files while unsaved edits to the
   selected day appear immediately.
 
+### Appearance themes
+
+- appearance defaults to Follow System, System Native, and Blue;
+- mode, theme, and accent changes persist immediately in `UserDefaults`;
+- invalid future or removed raw values recover to safe defaults;
+- forced light and dark modes override the supplied system appearance while
+  Follow System continues to track it;
+- all four curated themes provide paired light and dark palettes;
+- all six accents produce six distinct calendar levels, with readable text on
+  the two highest intensities;
+- appearance changes and reset do not mutate note content or Notion settings;
+- the settings gallery, midnight outline, and paper calendar are rendered at
+  440 × 560 points for visual comparison.
+
 ### Markdown
 
 - checkbox, numbered, bullet, and text rows round-trip;

@@ -10,6 +10,7 @@ The project is intentionally native and dependency-free:
 - AppKit + SwiftUI; no Electron and no embedded web view
 - one JSON file per day; only the selected day is held in memory
 - on-demand monthly calendar overview with contribution-style completion levels
+- four paired appearance themes, system/light/dark modes, and six accent colors
 - credentials stored in macOS Keychain
 - event-driven synchronization; no background polling loop
 
@@ -64,6 +65,15 @@ Days with to-dos are marked, and the accent color becomes darker as more
 checkbox to-dos are completed. Selecting a day returns directly to its outline.
 The overview reads only its visible 42-day range when opened or changed; normal
 outline editing continues to keep only the selected day in memory.
+
+## Appearance
+
+Open Settings and use the Appearance section to follow the system appearance or
+force Light or Dark mode. System Native, Paper, Graphite, and Midnight themes
+each include paired light and dark palettes. Six curated accent colors update
+selection, completed checkboxes, and the calendar completion ramp immediately.
+Appearance preferences stay on the current Mac and are never synchronized to
+Notion.
 
 ## Notion setup
 

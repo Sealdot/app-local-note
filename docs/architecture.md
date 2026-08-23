@@ -13,10 +13,10 @@ lifecycle.
 StatusItem / Popover
         |
         v
-DailyOutlineView <-> AppModel
-        |               |
-        v               v
-DayFileStore       SyncCoordinator
+DailyOutlineView <-> AppModel <-> AppearancePreferences
+        |               |                 |
+        v               v                 v
+DayFileStore       SyncCoordinator    UserDefaults
   JSON/day          |          |
                     v          v
                  Keychain   NotionClient
@@ -70,6 +70,15 @@ next launch.
 
 The Notion token is stored as a generic password in macOS Keychain. Page IDs
 and preferences may use `UserDefaults`; note content and tokens may not.
+
+### Appearance
+
+Appearance preferences are local, lightweight values stored in `UserDefaults`.
+`LocalNoteTheme` resolves the selected theme, light/dark mode, and accent into
+semantic colors for backgrounds, text, separators, controls, and the calendar
+activity ramp. SwiftUI views consume the resolved theme directly; the AppKit
+outline editor receives matching text and insertion-point colors explicitly.
+No theme value is written to daily documents or synchronized to Notion.
 
 ## Performance budgets
 

@@ -34,6 +34,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var document: DayDocument
     @Published private(set) var dateKey: String
     @Published private(set) var syncState: AppSyncState
+    @Published private(set) var appearance: AppearancePreferences
     @Published var notionPageID: String
     @Published var notionToken: String
 
@@ -76,6 +77,7 @@ final class AppModel: ObservableObject {
         let storedToken = (try? secretStore.read(account: Self.tokenAccount)) ?? ""
         notionPageID = storedPageID
         notionToken = storedToken
+        appearance = AppearancePreferences(defaults: defaults)
         syncState = storedPageID.isEmpty || storedToken.isEmpty ? .notConfigured : .idle
         if monitorsNetwork { startNetworkMonitor() }
     }
@@ -267,6 +269,30 @@ final class AppModel: ObservableObject {
             }
         }
         return summaries
+    }
+
+    func setAppearanceMode(_ mode: AppearanceMode) {
+        guard appearance.mode != mode else { return }
+        appearance.mode = mode
+        persistAppearance()
+    }
+
+    func setTheme(_ theme: ThemeID) {
+        guard appearance.theme != theme else { return }
+        appearance.theme = theme
+        persistAppearance()
+    }
+
+    func setAccent(_ accent: AccentID) {
+        guard appearance.accent != accent else { return }
+        appearance.accent = accent
+        persistAppearance()
+    }
+
+    func resetAppearance() {
+        guard appearance != .standard else { return }
+        appearance = .standard
+        persistAppearance()
     }
 
     @discardableResult
@@ -586,6 +612,10 @@ final class AppModel: ObservableObject {
                 self.syncNow()
             }
         }
+    }
+
+    private func persistAppearance() {
+        appearance.save(to: defaults)
     }
 
     private func startNetworkMonitor() {

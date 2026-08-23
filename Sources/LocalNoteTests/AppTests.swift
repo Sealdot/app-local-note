@@ -160,6 +160,17 @@ private func restorePasteboard(_ items: [NSPasteboardItem], to pasteboard: NSPas
     if !items.isEmpty { pasteboard.writeObjects(items) }
 }
 
+private func colorSignature(_ color: NSColor) -> String {
+    let resolved = color.usingColorSpace(.sRGB) ?? color
+    return String(
+        format: "%.4f-%.4f-%.4f-%.4f",
+        resolved.redComponent,
+        resolved.greenComponent,
+        resolved.blueComponent,
+        resolved.alphaComponent
+    )
+}
+
 func appTests() -> [TestCase] {
     [
         TestCase("menu bar app registers standard editing shortcuts") {
@@ -852,6 +863,96 @@ func appTests() -> [TestCase] {
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
             try expect(fixture.model.notionToken == "ntn_settings_test", "token paste should update its binding")
             window.close()
+        },
+        TestCase("appearance preferences persist immediately and reset together") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let itemID = try fixture.model.addItem().unwrap("appearance fixture row should exist")
+            fixture.model.updateText(id: itemID, text: "appearance must not edit content")
+            fixture.model.notionPageID = "notion-value-stays-local"
+            let originalDocument = fixture.model.document
+
+            fixture.model.setAppearanceMode(.dark)
+            fixture.model.setTheme(.midnight)
+            fixture.model.setAccent(.teal)
+
+            try expect(
+                AppearancePreferences(defaults: fixture.defaults)
+                    == AppearancePreferences(mode: .dark, theme: .midnight, accent: .teal),
+                "appearance changes should persist without a save button"
+            )
+            try expect(fixture.model.document == originalDocument, "appearance changes must not mutate note content")
+            try expect(fixture.model.notionPageID == "notion-value-stays-local", "appearance changes must not touch Notion settings")
+
+            fixture.model.resetAppearance()
+            try expect(fixture.model.appearance == .standard, "reset should update the live appearance")
+            try expect(AppearancePreferences(defaults: fixture.defaults) == .standard, "reset should persist every default")
+        },
+        TestCase("unknown stored appearance values recover to safe defaults") {
+            let suiteName = "dev.sealdot.LocalNote.appearance.invalid.\(UUID().uuidString)"
+            let defaults = try UserDefaults(suiteName: suiteName).unwrap("appearance defaults suite should exist")
+            defer { defaults.removePersistentDomain(forName: suiteName) }
+            defaults.set("future-mode", forKey: AppearancePreferences.modeDefaultsKey)
+            defaults.set("removed-theme", forKey: AppearancePreferences.themeDefaultsKey)
+            defaults.set("missing-accent", forKey: AppearancePreferences.accentDefaultsKey)
+            try expect(
+                AppearancePreferences(defaults: defaults) == .standard,
+                "unknown persisted values should never block launch"
+            )
+        },
+        TestCase("appearance modes and paired themes resolve deterministically") {
+            try expect(
+                AppearanceMode.system.resolvedColorScheme(systemColorScheme: .dark) == .dark,
+                "follow-system should use the environment scheme"
+            )
+            try expect(
+                AppearanceMode.light.resolvedColorScheme(systemColorScheme: .dark) == .light,
+                "forced light should ignore a dark environment"
+            )
+            try expect(
+                AppearanceMode.dark.resolvedColorScheme(systemColorScheme: .light) == .dark,
+                "forced dark should ignore a light environment"
+            )
+
+            for themeID in ThemeID.allCases {
+                let light = LocalNoteTheme.resolve(
+                    preferences: AppearancePreferences(mode: .light, theme: themeID),
+                    systemColorScheme: .dark
+                )
+                let dark = LocalNoteTheme.resolve(
+                    preferences: AppearancePreferences(mode: .dark, theme: themeID),
+                    systemColorScheme: .light
+                )
+                try expect(light.colorScheme == .light && dark.colorScheme == .dark, "each theme should provide paired modes")
+                try expect(
+                    colorSignature(light.backgroundNSColor) != colorSignature(dark.backgroundNSColor),
+                    "paired theme backgrounds should be visually distinct"
+                )
+            }
+        },
+        TestCase("every accent produces distinct calendar levels with readable high intensity text") {
+            for themeID in ThemeID.allCases {
+                for accentID in AccentID.allCases {
+                    for mode in [AppearanceMode.light, .dark] {
+                        let theme = LocalNoteTheme.resolve(
+                            preferences: AppearancePreferences(mode: mode, theme: themeID, accent: accentID),
+                            systemColorScheme: .light
+                        )
+                        try expect(theme.activityNSColors.count == 6, "calendar themes should always expose six levels")
+                        try expect(
+                            Set(theme.activityNSColors.map(colorSignature)).count == 6,
+                            "calendar completion levels should remain visually distinct"
+                        )
+                        for level in 4...5 {
+                            let ratio = LocalNoteTheme.contrastRatio(
+                                theme.activityTextNSColor(level: level),
+                                theme.activityNSColors[level]
+                            )
+                            try expect(ratio >= 4.5, "high-intensity day text should meet the readable contrast target")
+                        }
+                    }
+                }
+            }
         },
         TestCase("AppModel undo and redo restore text edits") {
             let fixture = try appFixture()
