@@ -141,6 +141,83 @@ let tests: [TestCase] = [
         try expect(document.items[0].manualStrikethrough, "explicit strike should survive unchecking")
         try expect(document.items[0].isStruck, "explicitly struck item should remain struck")
     },
+    TestCase("manual strike can be applied consistently to multiple rows") {
+        let first = OutlineItem(text: "first")
+        let second = OutlineItem(text: "second", manualStrikethrough: true)
+        let third = OutlineItem(text: "third")
+        var document = DayDocument(dateKey: "2026-08-13", items: [first, second, third])
+        let selectedIDs: Set<UUID> = [first.id, second.id]
+
+        OutlineEditor.setManualStrike(in: &document, ids: selectedIDs, enabled: true, now: fixedDate)
+        try expect(
+            document.items.map(\.manualStrikethrough) == [true, true, false],
+            "applying a batch strike should normalize every selected row"
+        )
+
+        OutlineEditor.setManualStrike(in: &document, ids: selectedIDs, enabled: false, now: fixedDate)
+        try expect(
+            document.items.map(\.manualStrikethrough) == [false, false, false],
+            "removing a batch strike should leave unselected rows unchanged"
+        )
+    },
+    TestCase("all completed subtasks automatically complete their parent") {
+        let parent = OutlineItem(depth: 0, kind: .checkbox, text: "事项")
+        let firstChild = OutlineItem(depth: 1, kind: .numbered, text: "子任务一")
+        let secondChild = OutlineItem(
+            depth: 1,
+            kind: .numbered,
+            text: "子任务二",
+            manualStrikethrough: true
+        )
+        var document = DayDocument(dateKey: "2026-08-20", items: [parent, firstChild, secondChild])
+
+        OutlineEditor.toggleManualStrike(in: &document, id: firstChild.id, now: fixedDate)
+
+        try expect(document.items[0].checked, "the parent should complete when every subtask is struck")
+    },
+    TestCase("an incomplete subtask reopens its completed parent") {
+        let parent = OutlineItem(depth: 0, kind: .checkbox, text: "事项", checked: true)
+        let child = OutlineItem(
+            depth: 1,
+            kind: .numbered,
+            text: "已完成子任务",
+            manualStrikethrough: true
+        )
+        var document = DayDocument(dateKey: "2026-08-20", items: [parent, child])
+
+        let newChildID = OutlineEditor.insertPeer(in: &document, after: child.id, now: fixedDate)
+
+        try expect(newChildID != nil, "a new subtask should be inserted")
+        try expect(document.items[2].depth == 1, "the new row should remain under the parent")
+        try expect(!document.items[2].isStruck, "the new subtask should start incomplete")
+        try expect(!document.items[0].checked, "the completed parent should reopen for an incomplete new subtask")
+    },
+    TestCase("reopening a subtask reopens every checkbox ancestor") {
+        let parent = OutlineItem(depth: 0, kind: .checkbox, text: "事项", checked: true)
+        let group = OutlineItem(depth: 1, kind: .checkbox, text: "分组", checked: true)
+        let child = OutlineItem(
+            depth: 2,
+            kind: .numbered,
+            text: "子任务",
+            manualStrikethrough: true
+        )
+        var document = DayDocument(dateKey: "2026-08-20", items: [parent, group, child])
+
+        OutlineEditor.toggleManualStrike(in: &document, id: child.id, now: fixedDate)
+
+        try expect(!document.items[1].checked, "the direct checkbox parent should reopen")
+        try expect(!document.items[0].checked, "higher checkbox ancestors should also reopen")
+    },
+    TestCase("indenting a new incomplete row reopens a completed parent") {
+        let parent = OutlineItem(depth: 0, kind: .checkbox, text: "事项", checked: true)
+        let newRow = OutlineItem(depth: 0, kind: .checkbox, text: "")
+        var document = DayDocument(dateKey: "2026-08-20", items: [parent, newRow])
+
+        OutlineEditor.indent(in: &document, id: newRow.id, now: fixedDate)
+
+        try expect(document.items[1].depth == 1, "the row should become a child")
+        try expect(!document.items[0].checked, "adding the incomplete child should reopen the parent")
+    },
     TestCase("kind changes and depth boundaries remain valid") {
         let first = OutlineItem(depth: 0, kind: .checkbox, text: "first", checked: true)
         let second = OutlineItem(depth: 0, kind: .checkbox, text: "second")

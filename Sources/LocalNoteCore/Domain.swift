@@ -127,6 +127,11 @@ public enum OutlineEditor {
         let item = OutlineItem(depth: min(max(0, depth), maximumDepth), kind: kind, createdAt: now, updatedAt: now)
         document.items.append(item)
         document.updatedAt = now
+        synchronizeParentCompletions(
+            in: &document,
+            parentIDs: checkboxAncestorIDs(in: document.items, ofItemAt: document.items.count - 1),
+            now: now
+        )
         return item.id
     }
 
@@ -149,6 +154,11 @@ public enum OutlineEditor {
         )
         document.items.insert(item, at: insertionIndex)
         document.updatedAt = now
+        synchronizeParentCompletions(
+            in: &document,
+            parentIDs: checkboxAncestorIDs(in: document.items, ofItemAt: insertionIndex),
+            now: now
+        )
         return item.id
     }
 
@@ -180,6 +190,9 @@ public enum OutlineEditor {
         )
         document.items.insert(item, at: index + 1)
         document.updatedAt = now
+        var parentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index + 1)
+        if item.kind == .checkbox { parentIDs.append(item.id) }
+        synchronizeParentCompletions(in: &document, parentIDs: parentIDs, now: now)
         return item.id
     }
 
@@ -197,16 +210,38 @@ public enum OutlineEditor {
 
     public static func toggleCompletion(in document: inout DayDocument, id: UUID, now: Date = Date()) {
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { return }
+        let parentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
         document.items[index].checked.toggle()
         document.items[index].updatedAt = now
         document.updatedAt = now
+        synchronizeParentCompletions(in: &document, parentIDs: parentIDs, now: now)
     }
 
     public static func toggleManualStrike(in document: inout DayDocument, id: UUID, now: Date = Date()) {
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { return }
+        let parentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
         document.items[index].manualStrikethrough.toggle()
         document.items[index].updatedAt = now
         document.updatedAt = now
+        synchronizeParentCompletions(in: &document, parentIDs: parentIDs, now: now)
+    }
+
+    public static func setManualStrike(
+        in document: inout DayDocument,
+        ids: Set<UUID>,
+        enabled: Bool,
+        now: Date = Date()
+    ) {
+        let indices = document.items.indices.filter { ids.contains(document.items[$0].id) }
+        guard indices.contains(where: { document.items[$0].manualStrikethrough != enabled }) else { return }
+
+        let parentIDs = indices.flatMap { checkboxAncestorIDs(in: document.items, ofItemAt: $0) }
+        for index in indices where document.items[index].manualStrikethrough != enabled {
+            document.items[index].manualStrikethrough = enabled
+            document.items[index].updatedAt = now
+        }
+        document.updatedAt = now
+        synchronizeParentCompletions(in: &document, parentIDs: parentIDs, now: now)
     }
 
     public static func changeKind(
@@ -216,29 +251,48 @@ public enum OutlineEditor {
         now: Date = Date()
     ) {
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { return }
+        var parentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
         document.items[index].kind = kind
         if kind != .checkbox {
             document.items[index].checked = false
+        } else {
+            parentIDs.append(id)
         }
         document.items[index].updatedAt = now
         document.updatedAt = now
+        synchronizeParentCompletions(in: &document, parentIDs: parentIDs, now: now)
     }
 
     public static func indent(in document: inout DayDocument, id: UUID, now: Date = Date()) {
         guard let index = document.items.firstIndex(where: { $0.id == id }), index > 0 else { return }
+        let previousParentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
         let allowedDepth = document.items[index - 1].depth + 1
         let newDepth = min(document.items[index].depth + 1, allowedDepth)
         guard newDepth != document.items[index].depth else { return }
         shiftSubtree(in: &document, rootIndex: index, delta: 1, now: now)
+        let newParentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
+        synchronizeParentCompletions(
+            in: &document,
+            parentIDs: previousParentIDs + newParentIDs,
+            now: now
+        )
     }
 
     public static func outdent(in document: inout DayDocument, id: UUID, now: Date = Date()) {
         guard let index = document.items.firstIndex(where: { $0.id == id }), document.items[index].depth > 0 else { return }
+        let previousParentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
         shiftSubtree(in: &document, rootIndex: index, delta: -1, now: now)
+        let newParentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
+        synchronizeParentCompletions(
+            in: &document,
+            parentIDs: previousParentIDs + newParentIDs,
+            now: now
+        )
     }
 
     public static func delete(in document: inout DayDocument, id: UUID, now: Date = Date()) {
         guard let index = document.items.firstIndex(where: { $0.id == id }) else { return }
+        let parentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
         let rootDepth = document.items[index].depth
         var end = index + 1
         while end < document.items.count && document.items[end].depth > rootDepth {
@@ -246,6 +300,51 @@ public enum OutlineEditor {
         }
         document.items.removeSubrange(index..<end)
         document.updatedAt = now
+        synchronizeParentCompletions(in: &document, parentIDs: parentIDs, now: now)
+    }
+
+    /// Keeps checkbox parents derived from the completion state of their
+    /// descendants. A parent with no descendants remains manually controlled.
+    private static func synchronizeParentCompletions(
+        in document: inout DayDocument,
+        parentIDs: [UUID],
+        now: Date
+    ) {
+        let parentIndices = Set(parentIDs).compactMap { id in
+            document.items.firstIndex(where: { $0.id == id })
+        }.sorted(by: >)
+
+        for parentIndex in parentIndices where document.items[parentIndex].kind == .checkbox {
+            let parentDepth = document.items[parentIndex].depth
+            var end = parentIndex + 1
+            while end < document.items.count && document.items[end].depth > parentDepth {
+                end += 1
+            }
+            guard end > parentIndex + 1 else { continue }
+
+            let allChildrenCompleted = document.items[(parentIndex + 1)..<end].allSatisfy(\.isStruck)
+            guard document.items[parentIndex].checked != allChildrenCompleted else { continue }
+            document.items[parentIndex].checked = allChildrenCompleted
+            document.items[parentIndex].updatedAt = now
+            document.updatedAt = now
+        }
+    }
+
+    private static func checkboxAncestorIDs(in items: [OutlineItem], ofItemAt index: Int) -> [UUID] {
+        guard items.indices.contains(index), items[index].depth > 0 else { return [] }
+        var ancestorIDs: [UUID] = []
+        var descendantDepth = items[index].depth
+
+        for candidateIndex in stride(from: index - 1, through: 0, by: -1) {
+            let candidate = items[candidateIndex]
+            guard candidate.depth < descendantDepth else { continue }
+            descendantDepth = candidate.depth
+            if candidate.kind == .checkbox {
+                ancestorIDs.append(candidate.id)
+            }
+            if descendantDepth == 0 { break }
+        }
+        return ancestorIDs
     }
 
     private static func shiftSubtree(

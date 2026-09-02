@@ -51,9 +51,14 @@ self-use workflow works with Command Line Tools alone.
 - type `1. ` at the beginning of an empty row to create a numbered structure;
 - `Return` continues numbered rows as `2.`, `3.`, and so on;
 - indenting a numbered child again uses alphabetic markers such as `a.`;
+- `Backspace` on an empty alphabetic row exits to the next parent-level number
+  (for example, empty `b.` becomes `2.`);
 - `Backspace` on an empty numbered child returns it to the next parent-level
   checkbox to-do;
-- `Command-Shift-S`: toggle strikethrough for the current item;
+- `Shift-Up` / `Shift-Down` or `Shift-click`: select consecutive items;
+- drag the mouse or trackpad across rows to select partial or complete lines;
+- `Command-C`: copy a cross-row selection with line breaks preserved;
+- `Command-Shift-S`: toggle strikethrough for the current item or all selected items;
 - `Backspace`: edit text normally, then remove an empty row and return to the previous item;
 - `Command-Z` / `Command-Shift-Z`: undo or redo text and outline-structure changes;
 - right-click: completion, hierarchy, row type, strikethrough, and delete actions.

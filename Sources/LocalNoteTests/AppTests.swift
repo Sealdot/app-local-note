@@ -184,7 +184,13 @@ func appTests() -> [TestCase] {
             try expect(action(for: "v") == #selector(NSText.paste(_:)), "Command-V must route to the text responder")
             try expect(action(for: "a") == #selector(NSText.selectAll(_:)), "Command-A must route to the text responder")
             try expect(action(for: "x") == #selector(NSText.cut(_:)), "Command-X must route to the text responder")
-            try expect(action(for: "c") == #selector(NSText.copy(_:)), "Command-C must route to the text responder")
+            try expect(
+                action(for: "c") == #selector(OutlineCommandRouter.copyLocalNote(_:)),
+                "Command-C must route through outline-aware copy handling"
+            )
+            let copyItem = try editMenu.items.first(where: { $0.keyEquivalent.lowercased() == "c" })
+                .unwrap("copy menu item should exist")
+            try expect(copyItem.target === OutlineCommandRouter.shared, "copy should use the outline command router")
             let undoItem = try editMenu.items.first(where: { $0.title == "撤销" })
                 .unwrap("undo menu item should exist")
             try expect(
@@ -214,6 +220,102 @@ func appTests() -> [TestCase] {
                 strikeItem.keyEquivalentModifierMask == [.command, .shift],
                 "strikethrough shortcut should use Command-Shift"
             )
+        },
+        TestCase("cross-row text selection preserves partial endpoints") {
+            let first = OutlineItem(text: "first")
+            let second = OutlineItem(text: "second")
+            let third = OutlineItem(text: "third")
+            let items = [first, second, third]
+            let forward = OutlineTextSelection(
+                anchor: OutlineTextPosition(itemID: first.id, utf16Offset: 2),
+                extent: OutlineTextPosition(itemID: third.id, utf16Offset: 3)
+            )
+            try expect(forward.text(in: items) == "rst\nsecond\nthi", "forward drag should keep partial endpoints")
+            try expect(
+                forward.range(for: first, in: items) == NSRange(location: 2, length: 3),
+                "the first row should select from the mouse anchor"
+            )
+            try expect(
+                forward.range(for: second, in: items) == NSRange(location: 0, length: 6),
+                "intermediate rows should be fully selected"
+            )
+            try expect(
+                forward.range(for: third, in: items) == NSRange(location: 0, length: 3),
+                "the last row should select through the mouse extent"
+            )
+
+            let reverse = OutlineTextSelection(
+                anchor: OutlineTextPosition(itemID: third.id, utf16Offset: 3),
+                extent: OutlineTextPosition(itemID: first.id, utf16Offset: 2)
+            )
+            try expect(reverse.text(in: items) == forward.text(in: items), "reverse drag should copy document order")
+        },
+        TestCase("mouse drag across outline fields copies multiple lines") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let pasteboard = NSPasteboard.general
+            let pasteboardItems = pasteboardSnapshot(pasteboard)
+            defer { restorePasteboard(pasteboardItems, to: pasteboard) }
+            let firstID = try fixture.model.addItem().unwrap("first row should be added")
+            fixture.model.updateText(id: firstID, text: "first")
+            let secondID = try fixture.model.addPeer(after: firstID).unwrap("second row should be added")
+            fixture.model.updateText(id: secondID, text: "second")
+            let thirdID = try fixture.model.addPeer(after: secondID).unwrap("third row should be added")
+            fixture.model.updateText(id: thirdID, text: "third")
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let fields = allTextFields(in: controller.view)
+            let firstField = try fields.first(where: { $0.identifier?.rawValue == firstID.uuidString })
+                .unwrap("first field should be rendered")
+            let thirdField = try fields.first(where: { $0.identifier?.rawValue == thirdID.uuidString })
+                .unwrap("third field should be rendered")
+            let firstRect = firstField.convert(firstField.bounds, to: nil)
+            let thirdRect = thirdField.convert(thirdField.bounds, to: nil)
+            let start = NSPoint(x: firstRect.minX + 1, y: firstRect.midY)
+            let end = NSPoint(x: thirdRect.maxX - 1, y: thirdRect.midY)
+            func mouseEvent(_ type: NSEvent.EventType, at point: NSPoint) throws -> NSEvent {
+                try NSEvent.mouseEvent(
+                    with: type,
+                    location: point,
+                    modifierFlags: [],
+                    timestamp: ProcessInfo.processInfo.systemUptime,
+                    windowNumber: window.windowNumber,
+                    context: nil,
+                    eventNumber: 0,
+                    clickCount: 1,
+                    pressure: type == .leftMouseUp ? 0 : 1
+                ).unwrap("mouse event should be created")
+            }
+            let mouseDown = try mouseEvent(.leftMouseDown, at: start)
+            let mouseDrag = try mouseEvent(.leftMouseDragged, at: end)
+            let mouseUp = try mouseEvent(.leftMouseUp, at: end)
+            NSApplication.shared.postEvent(mouseDrag, atStart: false)
+            NSApplication.shared.postEvent(mouseUp, atStart: false)
+            firstField.mouseDown(with: mouseDown)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+
+            let menu = ApplicationMenu.make()
+            NSApplication.shared.mainMenu = menu
+            let copyItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.title == "复制" })
+                .unwrap("copy menu item should exist")
+            pasteboard.clearContents()
+            try expect(
+                NSApplication.shared.sendAction(copyItem.action!, to: copyItem.target, from: copyItem),
+                "copy should reach the cross-row mouse selection"
+            )
+            let copiedText = pasteboard.string(forType: .string)
+            try expect(
+                copiedText == "first\nsecond\nthird",
+                "mouse-selected rows should copy as newline-delimited text; copied \(String(describing: copiedText))"
+            )
+            window.close()
         },
         TestCase("Command-V reaches a real SwiftUI outline field") {
             let fixture = try appFixture()
@@ -272,6 +374,10 @@ func appTests() -> [TestCase] {
             let field = try allTextFields(in: controller.view)
                 .first(where: { $0.stringValue == "toggle strike" })
                 .unwrap("outline text field should be rendered")
+            try expect(
+                field.allowsEditingTextAttributes,
+                "outline fields must preserve strikethrough attributes while the caret is active"
+            )
             try expect(window.makeFirstResponder(field), "outline field should accept first responder")
             try expect(window.firstResponder is NSTextView, "outline field editor should become first responder")
             try expect(field.currentEditor() === window.firstResponder, "outline field should own the active field editor")
@@ -301,6 +407,151 @@ func appTests() -> [TestCase] {
             try expect(
                 waitUntil { fixture.model.document.items.first?.manualStrikethrough == false },
                 "pressing the shortcut again should remove strikethrough"
+            )
+            window.close()
+        },
+        TestCase("dark appearance keeps active outline typing visible") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let itemID = try fixture.model.addItem().unwrap("outline row should be added")
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.appearance = NSAppearance(named: .darkAqua)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let field = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == itemID.uuidString })
+                .unwrap("outline field should be rendered")
+            try expect(window.makeFirstResponder(field), "outline field should accept focus")
+            let editor = try (field.currentEditor() as? NSTextView).unwrap("field editor should be active")
+            let typingColor = editor.typingAttributes[.foregroundColor] as? NSColor
+            try expect(
+                typingColor?.isEqual(NSColor.labelColor) == true,
+                "dark-mode typing should use the system label color"
+            )
+
+            editor.insertText("夜间输入", replacementRange: editor.selectedRange())
+            let insertedColor = editor.textStorage?.attribute(
+                .foregroundColor,
+                at: 0,
+                effectiveRange: nil
+            ) as? NSColor
+            try expect(
+                insertedColor?.isEqual(NSColor.labelColor) == true,
+                "new dark-mode text should retain the system label color"
+            )
+            window.close()
+        },
+        TestCase("Shift-Down selects consecutive rows for one strikethrough action") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let pasteboard = NSPasteboard.general
+            let pasteboardItems = pasteboardSnapshot(pasteboard)
+            defer { restorePasteboard(pasteboardItems, to: pasteboard) }
+            let firstID = try fixture.model.addItem().unwrap("first row should be added")
+            fixture.model.updateText(id: firstID, text: "first")
+            let secondID = try fixture.model.addPeer(after: firstID).unwrap("second row should be added")
+            fixture.model.updateText(id: secondID, text: "second")
+            let thirdID = try fixture.model.addPeer(after: secondID).unwrap("third row should be added")
+            fixture.model.updateText(id: thirdID, text: "third")
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let fields = allTextFields(in: controller.view)
+            let firstField = try fields
+                .first(where: { $0.identifier?.rawValue == firstID.uuidString })
+                .unwrap("first field should be rendered")
+            let secondField = try fields
+                .first(where: { $0.identifier?.rawValue == secondID.uuidString })
+                .unwrap("second field should be rendered")
+            try expect(window.makeFirstResponder(firstField), "first field should accept focus")
+            let firstEditor = try (firstField.currentEditor() as? NSTextView)
+                .unwrap("first editor should be active")
+
+            try sendKey(
+                keyCode: 125,
+                characters: "\u{f701}",
+                modifiers: [.shift],
+                to: firstEditor,
+                window: window
+            )
+            try expect(
+                waitUntil { secondField.currentEditor() != nil },
+                "Shift-Down should extend the row selection and focus its endpoint"
+            )
+            try expect(firstField.currentEditor() == nil, "only the focused field should expose the shared editor")
+
+            let menu = ApplicationMenu.make()
+            NSApplication.shared.mainMenu = menu
+            let copyItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.title == "复制" })
+                .unwrap("copy menu item should exist")
+            pasteboard.clearContents()
+            try expect(
+                NSApplication.shared.sendAction(copyItem.action!, to: copyItem.target, from: copyItem),
+                "copy should reach the multi-row selection endpoint"
+            )
+            try expect(
+                pasteboard.string(forType: .string) == "first\nsecond",
+                "copy should preserve selected row boundaries as newlines"
+            )
+            let strikeItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.title == "切换划线" })
+                .unwrap("strikethrough menu item should exist")
+            try expect(
+                NSApplication.shared.sendAction(strikeItem.action!, to: strikeItem.target, from: strikeItem),
+                "strikethrough action should reach the multi-row selection endpoint"
+            )
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.map(\.manualStrikethrough) == [true, true, false]
+                },
+                "one action should strike every selected row and no unselected row"
+            )
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    guard firstField.attributedStringValue.length > 0 else { return false }
+                    return firstField.attributedStringValue.attribute(
+                        .strikethroughStyle,
+                        at: 0,
+                        effectiveRange: nil
+                    ) != nil
+                },
+                "the inactive selected row should render its strikethrough"
+            )
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    guard let storage = (secondField.currentEditor() as? NSTextView)?.textStorage,
+                          storage.length > 0 else { return false }
+                    return storage.attribute(
+                        NSAttributedString.Key.strikethroughStyle,
+                        at: 0,
+                        effectiveRange: nil
+                    ) != nil
+                },
+                "the focused selected row should render its strikethrough"
+            )
+            try expect(
+                NSApplication.shared.sendAction(strikeItem.action!, to: strikeItem.target, from: strikeItem),
+                "the selected rows should remain available for a second action"
+            )
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.map(\.manualStrikethrough) == [false, false, false]
+                },
+                "a second action should remove strikethrough from the whole selection"
             )
             window.close()
         },
@@ -566,6 +817,66 @@ func appTests() -> [TestCase] {
             )
             window.close()
         },
+        TestCase("adding an incomplete child reopens and unstrikes its completed parent") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let parentID = try fixture.model.addItem().unwrap("parent row should be added")
+            fixture.model.updateText(id: parentID, text: "其他事项")
+            let childID = try fixture.model.addPeer(after: parentID).unwrap("child row should be added")
+            fixture.model.indent(id: childID)
+            fixture.model.updateText(id: childID, text: "已完成子任务")
+            fixture.model.toggleStrike(id: childID)
+            try expect(
+                fixture.model.document.items.first?.checked == true,
+                "a parent whose children are all complete should start checked"
+            )
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let fields = allTextFields(in: controller.view)
+            let parentField = try fields
+                .first(where: { $0.identifier?.rawValue == parentID.uuidString })
+                .unwrap("parent field should be rendered")
+            let childField = try fields
+                .first(where: { $0.identifier?.rawValue == childID.uuidString })
+                .unwrap("child field should be rendered")
+            try expect(window.makeFirstResponder(childField), "completed child should accept focus")
+            let editor = try (childField.currentEditor() as? NSTextView)
+                .unwrap("completed child editor should be active")
+            editor.setSelectedRange(NSRange(location: editor.string.utf16.count, length: 0))
+
+            try sendKey(keyCode: 36, characters: "\r", to: editor, window: window)
+            try expect(
+                waitUntil {
+                    guard fixture.model.document.items.count == 3 else { return false }
+                    let parent = fixture.model.document.items[0]
+                    let newChild = fixture.model.document.items[2]
+                    return !parent.checked
+                        && !parent.isStruck
+                        && newChild.depth == 1
+                        && newChild.kind == .numbered
+                        && !newChild.isStruck
+                },
+                "Return should immediately reopen the parent when it adds an incomplete child"
+            )
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    guard parentField.attributedStringValue.length > 0 else { return false }
+                    return parentField.attributedStringValue.attribute(
+                        .strikethroughStyle,
+                        at: 0,
+                        effectiveRange: nil
+                    ) == nil
+                },
+                "the reopened parent should render without strikethrough"
+            )
+            window.close()
+        },
         TestCase("Return at the caret splits a parent before its descendants") {
             let fixture = try appFixture()
             defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -814,6 +1125,82 @@ func appTests() -> [TestCase] {
                 "Backspace should turn an empty numbered child into the next top-level checkbox"
             )
             try expect(nextParentField.currentEditor() != nil, "returning to the next parent should preserve focus")
+            window.close()
+        },
+        TestCase("Backspace on an empty alphabetic row continues the parent numbered list") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let parentID = try fixture.model.addItem().unwrap("parent to-do should be added")
+            fixture.model.updateText(id: parentID, text: "其他事项")
+
+            let firstNumberID = try fixture.model.addPeer(after: parentID).unwrap("first numbered row should be added")
+            fixture.model.indent(id: firstNumberID)
+            fixture.model.updateText(id: firstNumberID, text: "部门周会")
+
+            let firstAlphaID = try fixture.model.addPeer(after: firstNumberID).unwrap("first alphabetic row should be added")
+            fixture.model.indent(id: firstAlphaID)
+            fixture.model.updateText(id: firstAlphaID, text: "更新周报内容")
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+
+            let firstAlphaField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == firstAlphaID.uuidString })
+                .unwrap("first alphabetic field should be rendered")
+            try expect(window.makeFirstResponder(firstAlphaField), "first alphabetic field should accept focus")
+            let editor = try (window.firstResponder as? NSTextView).unwrap("first alphabetic editor should be active")
+            try sendKey(keyCode: 36, characters: "\r", to: editor, window: window)
+
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.count == 4
+                        && fixture.model.document.items[3].depth == 2
+                        && fixture.model.document.items[3].kind == .numbered
+                        && fixture.model.displayPrefix(for: fixture.model.document.items[3]) == "b."
+                },
+                "Return on non-empty a. should create an empty b."
+            )
+            let emptyAlphaID = fixture.model.document.items[3].id
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .first(where: { $0.identifier?.rawValue == emptyAlphaID.uuidString })?
+                        .currentEditor() != nil
+                },
+                "the empty b. row should receive keyboard focus"
+            )
+
+            let emptyAlphaField = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == emptyAlphaID.uuidString })
+                .unwrap("empty alphabetic field should be rendered")
+            let emptyAlphaEditor = try (emptyAlphaField.currentEditor() as? NSTextView)
+                .unwrap("empty alphabetic editor should be active")
+            try sendKey(keyCode: 51, characters: "\u{7f}", to: emptyAlphaEditor, window: window)
+
+            try expect(
+                waitUntil {
+                    fixture.model.document.items.count == 4
+                        && fixture.model.document.items[3].id == emptyAlphaID
+                        && fixture.model.document.items[3].depth == 1
+                        && fixture.model.document.items[3].kind == .numbered
+                        && fixture.model.displayPrefix(for: fixture.model.document.items[3]) == "2."
+                },
+                "Backspace on empty b. should reuse the row as parent-level 2."
+            )
+            try expect(
+                waitUntil {
+                    controller.view.layoutSubtreeIfNeeded()
+                    return allTextFields(in: controller.view)
+                        .first(where: { $0.identifier?.rawValue == emptyAlphaID.uuidString })?
+                        .currentEditor() != nil
+                },
+                "the converted 2. row should keep keyboard focus"
+            )
             window.close()
         },
         TestCase("paste reaches both real Notion settings fields") {

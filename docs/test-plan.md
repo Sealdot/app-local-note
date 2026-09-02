@@ -25,6 +25,8 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 - indentation cannot become negative or jump more than one level;
 - completing a checkbox also strikes the row; unchecking preserves explicit
   user strike intent correctly;
+- adding any incomplete child immediately reopens its checkbox parent and
+  removes the completion-derived strikethrough;
 - decoding older files tolerates missing optional fields.
 - typing `1. ` on an empty checkbox row converts it to a numbered item without
   leaving the marker in its text;
@@ -37,9 +39,16 @@ empty to-do blocks and Notion's sequential numbered-list markers.
   matching the checkbox-parent → numbered-children structure in the reference;
 - a second numbered indent uses alphabetic prefixes and Shift-Tab returns to
   the numeric level;
+- Backspace on an empty alphabetic row reuses that row as the next numeric item
+  at its parent level (`b.` becomes `2.`);
 - numbered sequences restart after a non-numbered peer at the same depth.
 - Command-Z and Command-Shift-Z undo and redo both text edits and structural
   changes such as a caret split.
+- Shift-Up/Shift-Down extends a consecutive row selection, and one
+  Command-Shift-S action applies or removes manual strikethrough consistently
+  across the whole selection.
+- A mouse or trackpad drag can cross separate outline fields, preserve partial
+  first/last-row endpoints, and Command-C copies the selected rows with newlines.
 
 ### Persistence
 
@@ -116,10 +125,11 @@ empty to-do blocks and Notion's sequential numbered-list markers.
 The test executable renders the real SwiftUI outline in an AppKit window and
 makes its `NSTextField` the first responder. It dispatches `Command-V` and
 `Command-Shift-S` through the application Edit menu, then sends real Up, Down,
-Backspace, Tab, Shift-Tab, and Return key events through the field editor. The
-tests verify that paste and strikethrough reach `AppModel`, vertical navigation
-moves focus without changing content, Return focuses its inserted row, and
-Backspace returns focus to the preceding row after deletion. Long-text coverage
+Shift-Down, Backspace, Tab, Shift-Tab, and Return key events through the field
+editor, plus a real mouse drag across three outline fields. The tests verify
+that cross-row copy, paste, and single- or multi-row strikethrough reach
+`AppModel`, vertical navigation moves focus without changing content, Return
+focuses its inserted row, and Backspace returns focus to the preceding row. Long-text coverage
 asserts that a row wraps without a line limit, expands both on initial render
 and during active editing, does not overlap the next row, and keeps the field
 editor focused. A dedicated input method test keeps marked text, the marked

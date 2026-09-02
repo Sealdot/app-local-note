@@ -33,7 +33,13 @@ enum ApplicationMenu {
         editMenu.addItem(redoItem)
         editMenu.addItem(.separator())
         editMenu.addItem(menuItem("剪切", action: #selector(NSText.cut(_:)), key: "x"))
-        editMenu.addItem(menuItem("复制", action: #selector(NSText.copy(_:)), key: "c"))
+        let copyItem = menuItem(
+            "复制",
+            action: #selector(OutlineCommandRouter.copyLocalNote(_:)),
+            key: "c"
+        )
+        copyItem.target = OutlineCommandRouter.shared
+        editMenu.addItem(copyItem)
         editMenu.addItem(menuItem("粘贴", action: #selector(NSText.paste(_:)), key: "v"))
         editMenu.addItem(.separator())
         editMenu.addItem(menuItem("全选", action: #selector(NSText.selectAll(_:)), key: "a"))
@@ -68,6 +74,7 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
     static let shared = OutlineCommandRouter()
 
     private let toggleStrikeSelector = #selector(OutlineCommandRouter.toggleLocalNoteStrikethrough(_:))
+    private let copySelector = #selector(OutlineCommandRouter.copyLocalNote(_:))
     private let undoSelector = #selector(OutlineCommandRouter.undoLocalNote(_:))
     private let redoSelector = #selector(OutlineCommandRouter.redoLocalNote(_:))
     private weak var activeField: NSTextField?
@@ -83,6 +90,14 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
     @objc func toggleLocalNoteStrikethrough(_ sender: Any?) {
         guard let field = focusedOutlineField() else { return }
         _ = NSApplication.shared.sendAction(toggleStrikeSelector, to: field, from: sender)
+    }
+
+    @objc func copyLocalNote(_ sender: Any?) {
+        if let field = focusedOutlineField() {
+            _ = NSApplication.shared.sendAction(copySelector, to: field, from: sender)
+            return
+        }
+        _ = NSApplication.shared.sendAction(#selector(NSText.copy(_:)), to: nil, from: sender)
     }
 
     @objc func undoLocalNote(_ sender: Any?) {

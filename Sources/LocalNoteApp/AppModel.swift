@@ -201,6 +201,16 @@ final class AppModel: ObservableObject {
         mutate { OutlineEditor.toggleManualStrike(in: &$0, id: id) }
     }
 
+    func toggleStrike(ids: Set<UUID>) {
+        guard !ids.isEmpty else { return }
+        mutate { document in
+            let selectedItems = document.items.filter { ids.contains($0.id) }
+            guard !selectedItems.isEmpty else { return }
+            let shouldStrike = !selectedItems.allSatisfy(\.manualStrikethrough)
+            OutlineEditor.setManualStrike(in: &document, ids: ids, enabled: shouldStrike)
+        }
+    }
+
     func indent(id: UUID) {
         mutate { document in
             guard let index = document.items.firstIndex(where: { $0.id == id }) else { return }
@@ -228,6 +238,10 @@ final class AppModel: ObservableObject {
     func exitStructuredItem(id: UUID) {
         mutate { document in
             guard let item = document.items.first(where: { $0.id == id }) else { return }
+            if item.kind == .numbered, item.depth > 1 {
+                OutlineEditor.outdent(in: &document, id: id)
+                return
+            }
             OutlineEditor.changeKind(in: &document, id: id, kind: .checkbox)
             if item.depth > 0 {
                 OutlineEditor.outdent(in: &document, id: id)

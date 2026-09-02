@@ -12,6 +12,10 @@ struct ContentView: View {
     @State private var calendarMonthDateKey: String
     @State private var calendarSummaries: [String: DayActivitySummary]
     @State private var focusRequest: OutlineFocusRequest?
+    @State private var activeItemID: UUID?
+    @State private var selectionAnchorID: UUID?
+    @State private var selectionExtentID: UUID?
+    @State private var textSelection: OutlineTextSelection?
 
     init(
         model: AppModel,
@@ -24,6 +28,10 @@ struct ContentView: View {
         _calendarMonthDateKey = State(initialValue: model.dateKey)
         _calendarSummaries = State(initialValue: [:])
         _focusRequest = State(initialValue: nil)
+        _activeItemID = State(initialValue: nil)
+        _selectionAnchorID = State(initialValue: nil)
+        _selectionExtentID = State(initialValue: nil)
+        _textSelection = State(initialValue: nil)
     }
 
     var body: some View {
@@ -50,6 +58,10 @@ struct ContentView: View {
         }
         .onChange(of: model.document) { _ in
             if showingCalendar { refreshCalendar() }
+        }
+        .onChange(of: model.dateKey) { _ in
+            activeItemID = nil
+            clearSelections()
         }
     }
 
@@ -287,10 +299,15 @@ struct ContentView: View {
     }
 
     private func outlineRow(_ item: OutlineItem) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
+        let isSelected = selectedItemIDs.contains(item.id)
+        let selectedTextRange = textSelection?.range(for: item, in: model.document.items)
+        return HStack(alignment: .firstTextBaseline, spacing: 7) {
             Color.clear.frame(width: CGFloat(item.depth * 18), height: 1)
             if item.kind == .checkbox {
-                Button(action: { model.toggleCompletion(id: item.id) }) {
+                Button(action: {
+                    clearSelections()
+                    model.toggleCompletion(id: item.id)
+                }) {
                     Image(systemName: item.checked ? "checkmark.square.fill" : "square")
                         .foregroundColor(item.checked ? resolvedTheme.accent : resolvedTheme.secondaryText)
                 }
@@ -307,7 +324,9 @@ struct ContentView: View {
                     isStruck: item.isStruck,
                     textColor: item.isStruck
                         ? resolvedTheme.completedTextNSColor
-                        : resolvedTheme.primaryTextNSColor,
+                        : resolvedTheme.themeID == .systemNative
+                            ? NSColor.labelColor
+                            : resolvedTheme.primaryTextNSColor,
                     insertionPointColor: resolvedTheme.accentNSColor,
                     text: model.itemBinding(id: item.id),
                     focusRequest: focusRequest,
@@ -322,6 +341,9 @@ struct ContentView: View {
                     onMoveVertical: { direction, caretOffset in
                         moveFocus(from: item.id, direction: direction, caretOffset: caretOffset)
                     },
+                    onExtendSelection: { direction in
+                        extendSelection(from: item.id, direction: direction)
+                    },
                     onUndo: { caretOffset in
                         performHistory(.undo, from: item.id, caretOffset: caretOffset)
                     },
@@ -330,8 +352,18 @@ struct ContentView: View {
                     },
                     onIndent: { model.indent(id: item.id) },
                     onOutdent: { model.outdent(id: item.id) },
-                    onToggleStrike: { model.toggleStrike(id: item.id) },
+                    onToggleStrike: { toggleStrike(for: item.id) },
+                    crossRowSelection: selectedTextRange,
+                    onSelectRow: { extending in
+                        clearTextSelection()
+                        selectRow(item.id, extending: extending)
+                    },
+                    onClearTextSelection: clearSelections,
+                    onDragTextSelection: updateTextSelection,
+                    onCopySelection: copySelection,
+                    onTextChange: clearSelections,
                     onBeginEditing: {
+                        activeItemID = item.id
                         focusRequest = nil
                         model.beginEditing(id: item.id)
                     },
@@ -342,12 +374,21 @@ struct ContentView: View {
             }
         }
         .padding(.vertical, 4)
+        .padding(.horizontal, 4)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isSelected ? Color.accentColor.opacity(0.14) : Color.clear)
+        )
         .contentShape(Rectangle())
         .help("顶层待办 Return 后按 Tab 创建 1. 子项；Return 延续编号；Shift-Tab 减少层级；空编号 Backspace 返回下一项待办")
         .contextMenu {
+            if textSelection != nil || selectedItemIDs.count > 1 {
+                Button("复制所选内容") { _ = copySelection() }
+                Divider()
+            }
             Button("增加层级") { model.indent(id: item.id) }
             Button("减少层级") { model.outdent(id: item.id) }
-            Button(item.manualStrikethrough ? "取消划线" : "划线") { model.toggleStrike(id: item.id) }
+            Button(strikeActionTitle(for: item.id)) { toggleStrike(for: item.id) }
             Menu("行类型") {
                 Button("复选框") { model.changeKind(id: item.id, kind: .checkbox) }
                 Button("编号") { model.changeKind(id: item.id, kind: .numbered) }
@@ -360,16 +401,19 @@ struct ContentView: View {
     }
 
     private func addAndFocusItem() {
+        clearSelections()
         guard let id = model.addItem() else { return }
         requestFocus(itemID: id, caretOffset: 0)
     }
 
     private func addPeerAndFocus(after id: UUID) {
+        clearSelections()
         guard let insertedID = model.addPeer(after: id) else { return }
         requestFocus(itemID: insertedID, caretOffset: 0)
     }
 
     private func commitAndFocus(itemID: UUID, replacingUTF16Range selection: NSRange) {
+        clearSelections()
         guard let insertedID = model.commitItem(
             id: itemID,
             replacingUTF16Range: selection
@@ -378,10 +422,104 @@ struct ContentView: View {
     }
 
     private func moveFocus(from id: UUID, direction: Int, caretOffset: Int) {
+        clearSelections()
         guard let index = model.document.items.firstIndex(where: { $0.id == id }) else { return }
         let targetIndex = index + direction
         guard model.document.items.indices.contains(targetIndex) else { return }
         requestFocus(itemID: model.document.items[targetIndex].id, caretOffset: caretOffset)
+    }
+
+    private var selectedItemIDs: Set<UUID> {
+        guard let anchorID = selectionAnchorID,
+              let extentID = selectionExtentID,
+              anchorID != extentID,
+              let anchorIndex = model.document.items.firstIndex(where: { $0.id == anchorID }),
+              let extentIndex = model.document.items.firstIndex(where: { $0.id == extentID }) else {
+            return []
+        }
+        let lowerBound = min(anchorIndex, extentIndex)
+        let upperBound = max(anchorIndex, extentIndex)
+        return Set(model.document.items[lowerBound...upperBound].map(\.id))
+    }
+
+    private func selectRow(_ id: UUID, extending: Bool) {
+        guard extending else {
+            clearRowSelection()
+            return
+        }
+        selectionAnchorID = selectionAnchorID ?? activeItemID ?? id
+        selectionExtentID = id
+    }
+
+    private func extendSelection(from id: UUID, direction: Int) {
+        guard let index = model.document.items.firstIndex(where: { $0.id == id }) else { return }
+        let targetIndex = index + direction
+        guard model.document.items.indices.contains(targetIndex) else { return }
+        let target = model.document.items[targetIndex]
+        selectionAnchorID = selectionAnchorID ?? id
+        selectionExtentID = target.id
+        requestFocus(itemID: target.id, caretOffset: direction < 0 ? target.text.utf16.count : 0)
+    }
+
+    private func toggleStrike(for id: UUID) {
+        let ids = selectedItemIDs
+        if ids.count > 1, ids.contains(id) {
+            model.toggleStrike(ids: ids)
+        } else {
+            model.toggleStrike(id: id)
+        }
+    }
+
+    private func strikeActionTitle(for id: UUID) -> String {
+        let ids = selectedItemIDs
+        guard ids.count > 1, ids.contains(id) else {
+            return model.document.items.first(where: { $0.id == id })?.manualStrikethrough == true
+                ? "取消划线" : "划线"
+        }
+        let selected = model.document.items.filter { ids.contains($0.id) }
+        return selected.allSatisfy(\.manualStrikethrough) ? "取消所选划线" : "为所选项划线"
+    }
+
+    private func clearRowSelection() {
+        selectionAnchorID = nil
+        selectionExtentID = nil
+    }
+
+    private func updateTextSelection(
+        _ anchor: OutlineTextPosition,
+        _ extent: OutlineTextPosition
+    ) {
+        guard anchor.itemID != extent.itemID else {
+            textSelection = nil
+            return
+        }
+        clearRowSelection()
+        textSelection = OutlineTextSelection(anchor: anchor, extent: extent)
+    }
+
+    private func clearTextSelection() {
+        textSelection = nil
+    }
+
+    private func clearSelections() {
+        clearRowSelection()
+        clearTextSelection()
+    }
+
+    private func copySelection() -> Bool {
+        let value: String?
+        if let textSelection = textSelection {
+            value = textSelection.text(in: model.document.items)
+        } else {
+            let ids = selectedItemIDs
+            value = ids.count > 1
+                ? model.document.items.filter { ids.contains($0.id) }.map(\.text).joined(separator: "\n")
+                : nil
+        }
+        guard let value = value else { return false }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(value, forType: .string)
     }
 
     private func performHistory(
@@ -415,6 +553,7 @@ struct ContentView: View {
     }
 
     private func deleteAndFocus(_ id: UUID) {
+        clearSelections()
         guard let index = model.document.items.firstIndex(where: { $0.id == id }) else { return }
         let items = model.document.items
         let previous = index > 0 ? items[index - 1] : nil
@@ -745,6 +884,58 @@ private struct OutlineFocusRequest: Equatable {
     let caretOffset: Int
 }
 
+struct OutlineTextPosition: Equatable {
+    let itemID: UUID
+    let utf16Offset: Int
+}
+
+struct OutlineTextSelection: Equatable {
+    let anchor: OutlineTextPosition
+    let extent: OutlineTextPosition
+
+    func range(for item: OutlineItem, in items: [OutlineItem]) -> NSRange? {
+        guard anchor.itemID != extent.itemID,
+              let anchorIndex = items.firstIndex(where: { $0.id == anchor.itemID }),
+              let extentIndex = items.firstIndex(where: { $0.id == extent.itemID }),
+              let itemIndex = items.firstIndex(where: { $0.id == item.id }) else { return nil }
+        let lowerIndex = min(anchorIndex, extentIndex)
+        let upperIndex = max(anchorIndex, extentIndex)
+        guard (lowerIndex...upperIndex).contains(itemIndex) else { return nil }
+
+        let length = item.text.utf16.count
+        let anchorOffset = min(max(0, anchor.utf16Offset), items[anchorIndex].text.utf16.count)
+        let extentOffset = min(max(0, extent.utf16Offset), items[extentIndex].text.utf16.count)
+        if anchorIndex < extentIndex {
+            if itemIndex == anchorIndex {
+                return NSRange(location: anchorOffset, length: length - anchorOffset)
+            }
+            if itemIndex == extentIndex {
+                return NSRange(location: 0, length: extentOffset)
+            }
+        } else {
+            if itemIndex == extentIndex {
+                return NSRange(location: extentOffset, length: length - extentOffset)
+            }
+            if itemIndex == anchorIndex {
+                return NSRange(location: 0, length: anchorOffset)
+            }
+        }
+        return NSRange(location: 0, length: length)
+    }
+
+    func text(in items: [OutlineItem]) -> String? {
+        guard let anchorIndex = items.firstIndex(where: { $0.id == anchor.itemID }),
+              let extentIndex = items.firstIndex(where: { $0.id == extent.itemID }),
+              anchorIndex != extentIndex else { return nil }
+        let lowerIndex = min(anchorIndex, extentIndex)
+        let upperIndex = max(anchorIndex, extentIndex)
+        return items[lowerIndex...upperIndex].map { item in
+            guard let range = range(for: item, in: items) else { return "" }
+            return (item.text as NSString).substring(with: range)
+        }.joined(separator: "\n")
+    }
+}
+
 private enum OutlineHistoryDirection {
     case undo
     case redo
@@ -769,11 +960,18 @@ private struct OutlineEditorField: NSViewRepresentable {
     let onExitStructuredItem: () -> Void
     let onApplyTypingShortcut: (OutlineItemKind) -> Void
     let onMoveVertical: (_ direction: Int, _ caretOffset: Int) -> Void
+    let onExtendSelection: (_ direction: Int) -> Void
     let onUndo: (_ caretOffset: Int) -> OutlineHistoryFocus?
     let onRedo: (_ caretOffset: Int) -> OutlineHistoryFocus?
     let onIndent: () -> Void
     let onOutdent: () -> Void
     let onToggleStrike: () -> Void
+    let crossRowSelection: NSRange?
+    let onSelectRow: (_ extending: Bool) -> Void
+    let onClearTextSelection: () -> Void
+    let onDragTextSelection: (_ anchor: OutlineTextPosition, _ extent: OutlineTextPosition) -> Void
+    let onCopySelection: () -> Bool
+    let onTextChange: () -> Void
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
 
@@ -794,12 +992,17 @@ private struct OutlineEditorField: NSViewRepresentable {
         field.lineBreakMode = .byWordWrapping
         field.cell?.wraps = true
         field.cell?.isScrollable = false
+        field.allowsEditingTextAttributes = true
         field.delegate = context.coordinator
         field.onToggleStrike = onToggleStrike
         field.onUndo = onUndo
         field.onRedo = onRedo
         field.onBeginEditing = onBeginEditing
         field.onEndEditing = onEndEditing
+        field.onSelectRow = onSelectRow
+        field.onClearTextSelection = onClearTextSelection
+        field.onDragTextSelection = onDragTextSelection
+        field.onCopySelection = onCopySelection
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
@@ -812,6 +1015,10 @@ private struct OutlineEditorField: NSViewRepresentable {
         (field as? OutlineTextField)?.onRedo = onRedo
         (field as? OutlineTextField)?.onBeginEditing = onBeginEditing
         (field as? OutlineTextField)?.onEndEditing = onEndEditing
+        (field as? OutlineTextField)?.onSelectRow = onSelectRow
+        (field as? OutlineTextField)?.onClearTextSelection = onClearTextSelection
+        (field as? OutlineTextField)?.onDragTextSelection = onDragTextSelection
+        (field as? OutlineTextField)?.onCopySelection = onCopySelection
         (field as? OutlineTextField)?.applyTextAppearance(
             textColor: textColor,
             insertionPointColor: insertionPointColor
@@ -821,6 +1028,7 @@ private struct OutlineEditorField: NSViewRepresentable {
             (field as? OutlineTextField)?.invalidateWrappingHeight()
         }
         (field as? OutlineTextField)?.applyStrikethrough(isStruck)
+        (field as? OutlineTextField)?.applyCrossRowSelection(crossRowSelection)
         (field as? OutlineTextField)?.applyFocusRequest(focusRequest)
     }
 
@@ -847,6 +1055,7 @@ private struct OutlineEditorField: NSViewRepresentable {
                 return
             }
             guard parent.text != field.stringValue else { return }
+            parent.onTextChange()
             parent.text = field.stringValue
             (field as? OutlineTextField)?.invalidateWrappingHeight()
         }
@@ -862,6 +1071,12 @@ private struct OutlineEditorField: NSViewRepresentable {
                 return true
             case #selector(NSResponder.moveDown(_:)) where !textView.hasMarkedText():
                 parent.onMoveVertical(1, textView.selectedRange().location)
+                return true
+            case #selector(NSResponder.moveUpAndModifySelection(_:)) where !textView.hasMarkedText():
+                parent.onExtendSelection(-1)
+                return true
+            case #selector(NSResponder.moveDownAndModifySelection(_:)) where !textView.hasMarkedText():
+                parent.onExtendSelection(1)
                 return true
             case #selector(NSResponder.deleteBackward(_:)) where textView.string.isEmpty:
                 if parent.kind == .numbered || parent.kind == .bullet {
@@ -893,9 +1108,18 @@ private final class OutlineTextField: NSTextField {
     var onRedo: ((Int) -> OutlineHistoryFocus?)?
     var onBeginEditing: (() -> Void)?
     var onEndEditing: (() -> Void)?
+    var onSelectRow: ((Bool) -> Void)?
+    var onClearTextSelection: (() -> Void)?
+    var onDragTextSelection: ((OutlineTextPosition, OutlineTextPosition) -> Void)?
+    var onCopySelection: (() -> Bool)?
     private var pendingFocusRequest: OutlineFocusRequest?
     private var appliedFocusToken: UUID?
     private var measuredWidth: CGFloat = 0
+    private var strikethroughEnabled = false
+    private var crossRowSelection: NSRange?
+    private var crossRowPanRecognizer: NSPanGestureRecognizer?
+    private weak var recognizedFieldEditor: NSTextView?
+    private var recognizedSelectionAnchor: OutlineTextPosition?
 
     override var intrinsicContentSize: NSSize {
         guard let cell = cell else { return super.intrinsicContentSize }
@@ -923,6 +1147,53 @@ private final class OutlineTextField: NSTextField {
         }
     }
 
+    override func mouseDown(with event: NSEvent) {
+        onClearTextSelection?()
+        onSelectRow?(event.modifierFlags.contains(.shift))
+        guard event.clickCount == 1, let window = window else {
+            super.mouseDown(with: event)
+            return
+        }
+        if currentEditor() == nil, !window.makeFirstResponder(self) {
+            super.mouseDown(with: event)
+            return
+        }
+        guard let editor = currentEditor() as? NSTextView,
+              let itemID = identifier.flatMap({ UUID(uuidString: $0.rawValue) }) else {
+            super.mouseDown(with: event)
+            return
+        }
+
+        let anchorOffset = characterOffset(atWindowPoint: event.locationInWindow)
+        editor.setSelectedRange(NSRange(location: anchorOffset, length: 0))
+        while let trackingEvent = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            if trackingEvent.type == .leftMouseUp { break }
+            guard let target = Self.closestOutlineField(
+                to: trackingEvent.locationInWindow,
+                in: window
+            ), let targetID = target.identifier.flatMap({ UUID(uuidString: $0.rawValue) }) else {
+                continue
+            }
+            let extentOffset = target.characterOffset(atWindowPoint: trackingEvent.locationInWindow)
+            let anchor = OutlineTextPosition(itemID: itemID, utf16Offset: anchorOffset)
+            let extent = OutlineTextPosition(itemID: targetID, utf16Offset: extentOffset)
+            onDragTextSelection?(anchor, extent)
+            if target === self {
+                let lowerBound = min(anchorOffset, extentOffset)
+                editor.setSelectedRange(
+                    NSRange(location: lowerBound, length: abs(extentOffset - anchorOffset))
+                )
+            } else {
+                let ownFrame = convert(bounds, to: nil)
+                let targetFrame = target.convert(target.bounds, to: nil)
+                let selection = targetFrame.midY < ownFrame.midY
+                    ? NSRange(location: anchorOffset, length: editor.string.utf16.count - anchorOffset)
+                    : NSRange(location: 0, length: anchorOffset)
+                editor.setSelectedRange(selection)
+            }
+        }
+    }
+
     func invalidateWrappingHeight() {
         invalidateIntrinsicContentSize()
         needsLayout = true
@@ -930,36 +1201,76 @@ private final class OutlineTextField: NSTextField {
     }
 
     func applyStrikethrough(_ enabled: Bool) {
+        strikethroughEnabled = enabled
+        renderTextAppearance()
+    }
+
+    func applyCrossRowSelection(_ range: NSRange?) {
+        crossRowSelection = range
+        renderTextAppearance()
+    }
+
+    private func renderTextAppearance() {
         let styleKey = NSAttributedString.Key.strikethroughStyle
         let styleValue = NSUnderlineStyle.single.rawValue
         if let editor = currentEditor() as? NSTextView, let storage = editor.textStorage {
+            let foregroundColor = editor.textColor ?? textColor ?? NSColor.labelColor
+            editor.textColor = foregroundColor
             let range = NSRange(location: 0, length: storage.length)
             if range.length > 0 {
-                if enabled {
+                storage.removeAttribute(.backgroundColor, range: range)
+                storage.addAttribute(.foregroundColor, value: foregroundColor, range: range)
+                if strikethroughEnabled {
                     storage.addAttribute(styleKey, value: styleValue, range: range)
                 } else {
                     storage.removeAttribute(styleKey, range: range)
                 }
             }
+            if let layoutManager = editor.layoutManager {
+                layoutManager.removeTemporaryAttribute(.backgroundColor, forCharacterRange: range)
+                layoutManager.removeTemporaryAttribute(.foregroundColor, forCharacterRange: range)
+                if let selectedRange = clampedCrossRowSelection(length: storage.length),
+                   selectedRange.length > 0 {
+                    layoutManager.addTemporaryAttributes(
+                        [
+                            .backgroundColor: NSColor.selectedTextBackgroundColor,
+                            .foregroundColor: NSColor.selectedTextColor
+                        ],
+                        forCharacterRange: selectedRange
+                    )
+                }
+            }
             var attributes = editor.typingAttributes
-            if enabled {
+            if strikethroughEnabled {
                 attributes[styleKey] = styleValue
             } else {
                 attributes.removeValue(forKey: styleKey)
             }
+            attributes[.foregroundColor] = foregroundColor
             editor.typingAttributes = attributes
             return
         }
 
+        let foregroundColor = textColor ?? NSColor.labelColor
         let attributed = NSMutableAttributedString(string: stringValue)
         let range = NSRange(location: 0, length: attributed.length)
         if range.length > 0 {
             if let font = font {
                 attributed.addAttribute(.font, value: font, range: range)
             }
-            attributed.addAttribute(.foregroundColor, value: textColor ?? NSColor.labelColor, range: range)
-            if enabled {
+            attributed.addAttribute(.foregroundColor, value: foregroundColor, range: range)
+            if strikethroughEnabled {
                 attributed.addAttribute(styleKey, value: styleValue, range: range)
+            }
+            if let selectedRange = clampedCrossRowSelection(length: attributed.length),
+               selectedRange.length > 0 {
+                attributed.addAttributes(
+                    [
+                        .backgroundColor: NSColor.selectedTextBackgroundColor,
+                        .foregroundColor: NSColor.selectedTextColor
+                    ],
+                    range: selectedRange
+                )
             }
         }
         attributedStringValue = attributed
@@ -985,6 +1296,166 @@ private final class OutlineTextField: NSTextField {
         editor.typingAttributes = attributes
     }
 
+    private func clampedCrossRowSelection(length: Int) -> NSRange? {
+        guard let selection = crossRowSelection else { return nil }
+        let location = min(max(0, selection.location), length)
+        let upperBound = min(max(location, selection.location + selection.length), length)
+        return NSRange(location: location, length: upperBound - location)
+    }
+
+    private static func closestOutlineField(to point: NSPoint, in window: NSWindow) -> OutlineTextField? {
+        guard let contentView = window.contentView else { return nil }
+        let fields = outlineFields(in: contentView)
+        return fields.min { first, second in
+            verticalDistance(from: point, to: first)
+                < verticalDistance(from: point, to: second)
+        }
+    }
+
+    private func installCrossRowPanRecognizer() {
+        guard let editor = currentEditor() as? NSTextView else { return }
+        if recognizedFieldEditor === editor, crossRowPanRecognizer != nil { return }
+        removeCrossRowPanRecognizer()
+        let recognizer = NSPanGestureRecognizer(target: self, action: #selector(handleCrossRowPan(_:)))
+        recognizer.buttonMask = 0x1
+        recognizer.delaysPrimaryMouseButtonEvents = false
+        editor.addGestureRecognizer(recognizer)
+        recognizedFieldEditor = editor
+        crossRowPanRecognizer = recognizer
+    }
+
+    private func removeCrossRowPanRecognizer() {
+        if let recognizer = crossRowPanRecognizer {
+            recognizedFieldEditor?.removeGestureRecognizer(recognizer)
+        }
+        recognizedFieldEditor = nil
+        crossRowPanRecognizer = nil
+        recognizedSelectionAnchor = nil
+    }
+
+    @objc private func handleCrossRowPan(_ recognizer: NSPanGestureRecognizer) {
+        guard let editor = recognizedFieldEditor,
+              let window = window,
+              let itemID = identifier.flatMap({ UUID(uuidString: $0.rawValue) }) else { return }
+        let windowPoint = editor.convert(recognizer.location(in: editor), to: nil)
+        switch recognizer.state {
+        case .began:
+            onClearTextSelection?()
+            let translation = recognizer.translation(in: editor)
+            let anchorPoint = editor.convert(
+                NSPoint(
+                    x: recognizer.location(in: editor).x - translation.x,
+                    y: recognizer.location(in: editor).y - translation.y
+                ),
+                to: nil
+            )
+            recognizedSelectionAnchor = OutlineTextPosition(
+                itemID: itemID,
+                utf16Offset: characterOffset(atWindowPoint: anchorPoint)
+            )
+        case .changed, .ended:
+            guard let anchor = recognizedSelectionAnchor,
+                  let target = Self.closestOutlineField(to: windowPoint, in: window),
+                  let targetID = target.identifier.flatMap({ UUID(uuidString: $0.rawValue) }) else { return }
+            let extentOffset = target.characterOffset(atWindowPoint: windowPoint)
+            onDragTextSelection?(
+                anchor,
+                OutlineTextPosition(itemID: targetID, utf16Offset: extentOffset)
+            )
+            if target === self {
+                let lowerBound = min(anchor.utf16Offset, extentOffset)
+                editor.setSelectedRange(
+                    NSRange(location: lowerBound, length: abs(extentOffset - anchor.utf16Offset))
+                )
+            }
+            if recognizer.state == .ended { recognizedSelectionAnchor = nil }
+        case .cancelled, .failed:
+            recognizedSelectionAnchor = nil
+        default:
+            break
+        }
+    }
+
+    private static func outlineFields(in view: NSView) -> [OutlineTextField] {
+        let current = (view as? OutlineTextField).map { [$0] } ?? []
+        return current + view.subviews.flatMap(outlineFields)
+    }
+
+    private static func verticalDistance(from point: NSPoint, to field: OutlineTextField) -> CGFloat {
+        let frame = field.convert(field.bounds, to: nil)
+        if point.y < frame.minY { return frame.minY - point.y }
+        if point.y > frame.maxY { return point.y - frame.maxY }
+        return 0
+    }
+
+    private func characterOffset(atWindowPoint windowPoint: NSPoint) -> Int {
+        let length = stringValue.utf16.count
+        guard length > 0 else { return 0 }
+        if let editor = currentEditor() as? NSTextView {
+            let editorPoint = editor.convert(windowPoint, from: nil)
+            return min(length, editor.characterIndexForInsertion(at: editorPoint))
+        }
+        let localPoint = convert(windowPoint, from: nil)
+        let drawingRect = cell?.drawingRect(forBounds: bounds) ?? bounds
+        let attributed = NSMutableAttributedString(attributedString: attributedStringValue)
+        if attributed.length != length {
+            attributed.setAttributedString(NSAttributedString(string: stringValue))
+        }
+        if attributed.length > 0, attributed.attribute(.font, at: 0, effectiveRange: nil) == nil {
+            attributed.addAttribute(
+                .font,
+                value: font ?? NSFont.systemFont(ofSize: NSFont.systemFontSize),
+                range: NSRange(location: 0, length: attributed.length)
+            )
+        }
+
+        let storage = NSTextStorage(attributedString: attributed)
+        let layoutManager = NSLayoutManager()
+        let container = NSTextContainer(
+            containerSize: NSSize(
+                width: max(1, drawingRect.width),
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        )
+        container.lineFragmentPadding = 0
+        container.maximumNumberOfLines = 0
+        container.lineBreakMode = .byWordWrapping
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        layoutManager.ensureLayout(for: container)
+
+        let y = isFlipped
+            ? localPoint.y - drawingRect.minY
+            : drawingRect.maxY - localPoint.y
+        let textPoint = NSPoint(x: localPoint.x - drawingRect.minX, y: max(0, y))
+        var fraction: CGFloat = 0
+        let glyphIndex = layoutManager.glyphIndex(
+            for: textPoint,
+            in: container,
+            fractionOfDistanceThroughGlyph: &fraction
+        )
+        var lineGlyphRange = NSRange()
+        let usedLineRect = layoutManager.lineFragmentUsedRect(
+            forGlyphAt: min(glyphIndex, max(0, layoutManager.numberOfGlyphs - 1)),
+            effectiveRange: &lineGlyphRange
+        )
+        if textPoint.x <= usedLineRect.minX {
+            return min(length, layoutManager.characterIndexForGlyph(at: lineGlyphRange.location))
+        }
+        if textPoint.x >= usedLineRect.maxX {
+            let lastGlyph = min(layoutManager.numberOfGlyphs, NSMaxRange(lineGlyphRange))
+            guard lastGlyph > 0 else { return 0 }
+            let lastCharacter = layoutManager.characterIndexForGlyph(at: lastGlyph - 1)
+            let glyphCharacterRange = layoutManager.characterRange(
+                forGlyphRange: NSRange(location: lastGlyph - 1, length: 1),
+                actualGlyphRange: nil
+            )
+            return min(length, max(lastCharacter + 1, NSMaxRange(glyphCharacterRange)))
+        }
+        let characterIndex = layoutManager.characterIndexForGlyph(at: glyphIndex)
+        return min(length, characterIndex + (fraction >= 0.5 ? 1 : 0))
+    }
+
     func applyFocusRequest(_ request: OutlineFocusRequest?) {
         pendingFocusRequest = request
         guard let request = request,
@@ -1008,6 +1479,8 @@ private final class OutlineTextField: NSTextField {
         if accepted {
             OutlineCommandRouter.shared.didBeginEditing(self)
             onBeginEditing?()
+            applyStrikethrough(strikethroughEnabled)
+            installCrossRowPanRecognizer()
         }
         return accepted
     }
@@ -1016,16 +1489,25 @@ private final class OutlineTextField: NSTextField {
         super.textDidBeginEditing(notification)
         OutlineCommandRouter.shared.didBeginEditing(self)
         onBeginEditing?()
+        applyStrikethrough(strikethroughEnabled)
+        installCrossRowPanRecognizer()
     }
 
     override func textDidEndEditing(_ notification: Notification) {
+        removeCrossRowPanRecognizer()
         onEndEditing?()
         OutlineCommandRouter.shared.didEndEditing(self)
         super.textDidEndEditing(notification)
+        applyStrikethrough(strikethroughEnabled)
     }
 
     @objc func toggleLocalNoteStrikethrough(_ sender: Any?) {
         onToggleStrike?()
+    }
+
+    @objc func copyLocalNote(_ sender: Any?) {
+        if onCopySelection?() == true { return }
+        (currentEditor() as? NSTextView)?.copy(sender)
     }
 
     @objc func undoLocalNote(_ sender: Any?) {
