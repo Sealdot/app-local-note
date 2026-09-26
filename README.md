@@ -22,7 +22,7 @@ The project is intentionally native and dependency-free:
 
 ## Download
 
-Download the [latest macOS ZIP](https://github.com/Sealdot/app-local-note/releases/latest/download/LocalNote-macOS.zip), extract it, and open `LocalNote.app`. The app requires macOS 11 or newer. Release notes and a SHA-256 checksum are on the [Releases page](https://github.com/Sealdot/app-local-note/releases/latest).
+Download the [latest macOS ZIP](https://github.com/Sealdot/app-local-note/releases/latest/download/LocalNote-macOS.zip), extract it, and open `LocalNote.app`. The universal build supports Apple Silicon and Intel Macs running macOS 11 or newer. Release notes and a SHA-256 checksum are on the [Releases page](https://github.com/Sealdot/app-local-note/releases/latest).
 
 Release builds are ad-hoc signed and **not notarized**. macOS may ask you to approve opening the downloaded app in **System Settings → Privacy & Security**. If you prefer, build the app from source using the commands below. The app interface currently uses Chinese; this README and the [Chinese guide](README.zh-CN.md) provide documentation in both languages.
 

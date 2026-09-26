@@ -2,11 +2,11 @@
 set -eu
 
 "$(dirname "$0")/test.sh"
-"$(dirname "$0")/build.sh" release
 "$(dirname "$0")/package-app.sh"
 
 plutil -lint build/LocalNote.app/Contents/Info.plist
 codesign --verify --deep --strict build/LocalNote.app
+xcrun lipo build/LocalNote.app/Contents/MacOS/LocalNote -verify_arch arm64 x86_64
 
 if [ ! -s "build/LocalNote.app/Contents/Resources/AppIcon.icns" ]; then
   echo "Packaged app icon is missing" >&2
@@ -32,4 +32,3 @@ if rg -n --hidden \
 fi
 
 echo "Verification passed"
-

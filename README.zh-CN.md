@@ -10,7 +10,7 @@ Local Note 是一款轻量的 macOS 菜单栏工作记录工具。无需打开�
 
 ## 下载与安装
 
-下载[最新 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/latest/download/LocalNote-macOS.zip)，解压后打开 `LocalNote.app`。需要 macOS 11 或更新版本。更新说明和 SHA-256 校验值见 [Releases 页面](https://github.com/Sealdot/app-local-note/releases/latest)。
+下载[最新 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/latest/download/LocalNote-macOS.zip)，解压后打开 `LocalNote.app`。通用版本支持搭载 Apple 芯片或 Intel 处理器、运行 macOS 11 或更新版本的 Mac。更新说明和 SHA-256 校验值见 [Releases 页面](https://github.com/Sealdot/app-local-note/releases/latest)。
 
 下载包使用临时签名，**未经 Apple 公证**。首次打开时，macOS 可能要求在“系统设置 → 隐私与安全性”中允许打开。也可以按下文从源代码自行构建。当前应用界面以中文为主；项目文档提供中文和英文版本。
 
