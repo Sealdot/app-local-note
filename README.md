@@ -1,5 +1,7 @@
 # Local Note
 
+[简体中文](README.zh-CN.md) · English
+
 Local Note is a small, offline-first macOS menu bar work log. It keeps the
 current day available without a browser and can optionally synchronize the
 day's outline to a Notion page.
@@ -13,14 +15,22 @@ The project is intentionally native and dependency-free:
 - four paired appearance themes, system/light/dark modes, and six accent colors
 - credentials stored in macOS Keychain
 - event-driven synchronization; no background polling loop
+- outline-aware copy and paste that preserves row types, nesting, and completion
 
 > Local Note is an independent open-source project and is not affiliated with
 > or endorsed by Notion Labs, Inc.
 
+## Download
+
+Download the [latest macOS ZIP](https://github.com/Sealdot/app-local-note/releases/latest/download/LocalNote-macOS.zip), extract it, and open `LocalNote.app`. The app requires macOS 11 or newer. Release notes and a SHA-256 checksum are on the [Releases page](https://github.com/Sealdot/app-local-note/releases/latest).
+
+Release builds are ad-hoc signed and **not notarized**. macOS may ask you to approve opening the downloaded app in **System Settings → Privacy & Security**. If you prefer, build the app from source using the commands below. The app interface currently uses Chinese; this README and the [Chinese guide](README.zh-CN.md) provide documentation in both languages.
+
 ## Project status
 
-Early self-use MVP. Source builds are supported; signed or notarized binaries
-are not currently distributed.
+Early self-use MVP. Downloadable, ad-hoc signed builds are available on the
+[Releases page](https://github.com/Sealdot/app-local-note/releases); notarized
+builds are not currently distributed.
 
 ## Build requirements
 
@@ -58,6 +68,7 @@ self-use workflow works with Command Line Tools alone.
 - `Shift-Up` / `Shift-Down` or `Shift-click`: select consecutive items;
 - drag the mouse or trackpad across rows to select partial or complete lines;
 - `Command-C`: copy a cross-row selection with line breaks preserved;
+- `Command-V`: paste copied outline rows while preserving their structure and styles;
 - `Command-Shift-S`: toggle strikethrough for the current item or all selected items;
 - `Backspace`: edit text normally, then remove an empty row and return to the previous item;
 - `Command-Z` / `Command-Shift-Z`: undo or redo text and outline-structure changes;

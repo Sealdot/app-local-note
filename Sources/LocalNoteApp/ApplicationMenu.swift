@@ -40,7 +40,13 @@ enum ApplicationMenu {
         )
         copyItem.target = OutlineCommandRouter.shared
         editMenu.addItem(copyItem)
-        editMenu.addItem(menuItem("粘贴", action: #selector(NSText.paste(_:)), key: "v"))
+        let pasteItem = menuItem(
+            "粘贴",
+            action: #selector(OutlineCommandRouter.pasteLocalNote(_:)),
+            key: "v"
+        )
+        pasteItem.target = OutlineCommandRouter.shared
+        editMenu.addItem(pasteItem)
         editMenu.addItem(.separator())
         editMenu.addItem(menuItem("全选", action: #selector(NSText.selectAll(_:)), key: "a"))
         editMenu.addItem(.separator())
@@ -75,6 +81,7 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
 
     private let toggleStrikeSelector = #selector(OutlineCommandRouter.toggleLocalNoteStrikethrough(_:))
     private let copySelector = #selector(OutlineCommandRouter.copyLocalNote(_:))
+    private let pasteSelector = #selector(OutlineCommandRouter.pasteLocalNote(_:))
     private let undoSelector = #selector(OutlineCommandRouter.undoLocalNote(_:))
     private let redoSelector = #selector(OutlineCommandRouter.redoLocalNote(_:))
     private weak var activeField: NSTextField?
@@ -100,6 +107,23 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
         _ = NSApplication.shared.sendAction(#selector(NSText.copy(_:)), to: nil, from: sender)
     }
 
+    @objc func pasteLocalNote(_ sender: Any?) {
+        if let field = focusedOutlineField() {
+            field.perform(pasteSelector, with: sender)
+            return
+        }
+        let application = NSApplication.shared
+        let responder = application.orderedWindows
+            .first(where: { $0.isVisible && $0.firstResponder is NSTextView })?
+            .firstResponder
+            ?? application.keyWindow?.firstResponder
+        _ = application.sendAction(
+            #selector(NSText.paste(_:)),
+            to: responder,
+            from: sender
+        )
+    }
+
     @objc func undoLocalNote(_ sender: Any?) {
         guard let field = focusedOutlineField() else { return }
         _ = NSApplication.shared.sendAction(undoSelector, to: field, from: sender)
@@ -122,14 +146,10 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
     }
 
     private func focusedOutlineField() -> NSTextField? {
-        if let activeField = activeField,
-           activeField.currentEditor() != nil,
-           activeField.responds(to: toggleStrikeSelector) {
-            return activeField
-        }
         let application = NSApplication.shared
-        let windows = ([application.keyWindow] + application.windows.map(Optional.some))
-            .compactMap { $0 }
+        let windows = (application.orderedWindows
+            .filter(\.isVisible)
+            .map(Optional.some)).compactMap { $0 }
         for window in windows {
             guard let editor = window.firstResponder as? NSTextView,
                   let contentView = window.contentView else { continue }
@@ -138,6 +158,12 @@ final class OutlineCommandRouter: NSObject, NSMenuItemValidation {
             }) {
                 return field
             }
+        }
+        if let activeField = activeField,
+           activeField.window?.isKeyWindow == true,
+           activeField.currentEditor() != nil,
+           activeField.responds(to: toggleStrikeSelector) {
+            return activeField
         }
         return nil
     }

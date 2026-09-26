@@ -181,7 +181,10 @@ func appTests() -> [TestCase] {
             func action(for key: String) -> Selector? {
                 editMenu.items.first(where: { $0.keyEquivalent.lowercased() == key })?.action
             }
-            try expect(action(for: "v") == #selector(NSText.paste(_:)), "Command-V must route to the text responder")
+            try expect(
+                action(for: "v") == #selector(OutlineCommandRouter.pasteLocalNote(_:)),
+                "Command-V must route through outline-aware paste handling"
+            )
             try expect(action(for: "a") == #selector(NSText.selectAll(_:)), "Command-A must route to the text responder")
             try expect(action(for: "x") == #selector(NSText.cut(_:)), "Command-X must route to the text responder")
             try expect(
@@ -191,6 +194,9 @@ func appTests() -> [TestCase] {
             let copyItem = try editMenu.items.first(where: { $0.keyEquivalent.lowercased() == "c" })
                 .unwrap("copy menu item should exist")
             try expect(copyItem.target === OutlineCommandRouter.shared, "copy should use the outline command router")
+            let pasteItem = try editMenu.items.first(where: { $0.keyEquivalent.lowercased() == "v" })
+                .unwrap("paste menu item should exist")
+            try expect(pasteItem.target === OutlineCommandRouter.shared, "paste should use the outline command router")
             let undoItem = try editMenu.items.first(where: { $0.title == "撤销" })
                 .unwrap("undo menu item should exist")
             try expect(
@@ -260,8 +266,12 @@ func appTests() -> [TestCase] {
             fixture.model.updateText(id: firstID, text: "first")
             let secondID = try fixture.model.addPeer(after: firstID).unwrap("second row should be added")
             fixture.model.updateText(id: secondID, text: "second")
+            fixture.model.changeKind(id: secondID, kind: .numbered)
+            fixture.model.indent(id: secondID)
             let thirdID = try fixture.model.addPeer(after: secondID).unwrap("third row should be added")
             fixture.model.updateText(id: thirdID, text: "third")
+            fixture.model.changeKind(id: thirdID, kind: .checkbox)
+            fixture.model.outdent(id: thirdID)
 
             let controller = NSHostingController(rootView: ContentView(model: fixture.model))
             let window = NSWindow(contentViewController: controller)
@@ -315,6 +325,13 @@ func appTests() -> [TestCase] {
                 copiedText == "first\nsecond\nthird",
                 "mouse-selected rows should copy as newline-delimited text; copied \(String(describing: copiedText))"
             )
+            let copiedItems = try OutlineClipboard.read(from: pasteboard)
+                .unwrap("cross-row copy should include structured outline data")
+            try expect(
+                copiedItems.map(\.kind) == [.checkbox, .numbered, .checkbox]
+                    && copiedItems.map(\.depth) == [0, 1, 0],
+                "cross-row copy should retain row kinds and hierarchy"
+            )
             window.close()
         },
         TestCase("Command-V reaches a real SwiftUI outline field") {
@@ -346,7 +363,7 @@ func appTests() -> [TestCase] {
                 .first(where: { $0.keyEquivalent == "v" })
                 .unwrap("paste menu item should exist")
             try expect(
-                NSApplication.shared.sendAction(pasteItem.action!, to: window.firstResponder, from: pasteItem),
+                NSApplication.shared.sendAction(pasteItem.action!, to: pasteItem.target, from: pasteItem),
                 "paste action should reach the field editor"
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
@@ -355,6 +372,76 @@ func appTests() -> [TestCase] {
             try expect(
                 modelValue == "快捷键粘贴",
                 "paste should update the AppModel binding (editor='\(editorValue)', field='\(field.stringValue)', model='\(modelValue)')"
+            )
+            window.close()
+        },
+        TestCase("structured paste preserves outline styles and hierarchy") {
+            let fixture = try appFixture()
+            defer { try? FileManager.default.removeItem(at: fixture.root) }
+            let pasteboard = NSPasteboard.general
+            let pasteboardItems = pasteboardSnapshot(pasteboard)
+            defer { restorePasteboard(pasteboardItems, to: pasteboard) }
+            let targetID = try fixture.model.addItem().unwrap("target row should be added")
+            let sourceItems = [
+                OutlineItem(depth: 0, kind: .checkbox, text: "项目", checked: false),
+                OutlineItem(depth: 1, kind: .numbered, text: "梳理模块"),
+                OutlineItem(depth: 2, kind: .text, text: "已完成的说明", manualStrikethrough: true),
+                OutlineItem(depth: 0, kind: .checkbox, text: "已完成", checked: true)
+            ]
+            try expect(
+                OutlineClipboard.write(
+                    items: sourceItems,
+                    plainText: sourceItems.map(\.text).joined(separator: "\n"),
+                    to: pasteboard
+                ),
+                "structured clipboard payload should be written"
+            )
+
+            let controller = NSHostingController(rootView: ContentView(model: fixture.model))
+            let window = NSWindow(contentViewController: controller)
+            window.setContentSize(NSSize(width: 440, height: 560))
+            window.makeKeyAndOrderFront(nil)
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            controller.view.layoutSubtreeIfNeeded()
+            let field = try allTextFields(in: controller.view)
+                .first(where: { $0.identifier?.rawValue == targetID.uuidString })
+                .unwrap("target field should be rendered")
+            try expect(window.makeFirstResponder(field), "target field should accept focus")
+            field.selectText(nil)
+
+            let menu = ApplicationMenu.make()
+            NSApplication.shared.mainMenu = menu
+            let pasteItem = try menu.items.compactMap(\.submenu)
+                .flatMap(\.items)
+                .first(where: { $0.keyEquivalent == "v" })
+                .unwrap("paste menu item should exist")
+            try expect(
+                NSApplication.shared.sendAction(pasteItem.action!, to: pasteItem.target, from: pasteItem),
+                "structured paste should reach the outline field"
+            )
+            try expect(
+                waitUntil { fixture.model.document.items.count == sourceItems.count },
+                "all copied rows should be inserted"
+            )
+            try expect(
+                fixture.model.document.items.map(\.kind) == sourceItems.map(\.kind),
+                "row kinds should survive paste"
+            )
+            try expect(
+                fixture.model.document.items.map(\.depth) == sourceItems.map(\.depth),
+                "outline hierarchy should survive paste"
+            )
+            try expect(
+                fixture.model.document.items.map(\.checked) == sourceItems.map(\.checked),
+                "checkbox completion should survive paste"
+            )
+            try expect(
+                fixture.model.document.items.map(\.manualStrikethrough) == sourceItems.map(\.manualStrikethrough),
+                "manual strikethrough should survive paste"
+            )
+            try expect(
+                Set(fixture.model.document.items.map(\.id)).isDisjoint(with: Set(sourceItems.map(\.id))),
+                "pasted rows should receive new identities"
             )
             window.close()
         },
@@ -1233,7 +1320,7 @@ func appTests() -> [TestCase] {
             pasteboard.clearContents()
             pasteboard.setString("https://notion.so/1234567890abcdef1234567890abcdef", forType: .string)
             try expect(
-                NSApplication.shared.sendAction(pasteItem.action!, to: window.firstResponder, from: pasteItem),
+                NSApplication.shared.sendAction(pasteItem.action!, to: pasteItem.target, from: pasteItem),
                 "paste should reach the page field"
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
@@ -1244,7 +1331,7 @@ func appTests() -> [TestCase] {
             pasteboard.clearContents()
             pasteboard.setString("ntn_settings_test", forType: .string)
             try expect(
-                NSApplication.shared.sendAction(pasteItem.action!, to: window.firstResponder, from: pasteItem),
+                NSApplication.shared.sendAction(pasteItem.action!, to: pasteItem.target, from: pasteItem),
                 "paste should reach the secure token field"
             )
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))

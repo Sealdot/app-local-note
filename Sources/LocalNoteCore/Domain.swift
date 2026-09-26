@@ -71,6 +71,16 @@ public struct DayDocument: Codable, Equatable {
     }
 }
 
+public struct OutlinePasteResult: Equatable {
+    public let itemID: UUID
+    public let caretOffset: Int
+
+    public init(itemID: UUID, caretOffset: Int) {
+        self.itemID = itemID
+        self.caretOffset = caretOffset
+    }
+}
+
 public struct DayActivitySummary: Equatable {
     public let dateKey: String
     public let totalTodos: Int
@@ -206,6 +216,60 @@ public enum OutlineEditor {
         document.items[index].text = text
         document.items[index].updatedAt = now
         document.updatedAt = now
+    }
+
+    /// Replaces one outline row with a structured clipboard fragment. The
+    /// clipboard rows keep their kinds, depths, and completion styles while
+    /// receiving fresh identities for the destination document.
+    public static func paste(
+        _ sourceItems: [OutlineItem],
+        in document: inout DayDocument,
+        replacing id: UUID,
+        utf16Range selection: NSRange,
+        now: Date = Date()
+    ) -> OutlinePasteResult? {
+        guard !sourceItems.isEmpty,
+              let index = document.items.firstIndex(where: { $0.id == id }) else { return nil }
+
+        let original = document.items[index]
+        let originalText = original.text as NSString
+        let location = min(max(0, selection.location), originalText.length)
+        let length = min(max(0, selection.length), originalText.length - location)
+        let prefix = originalText.substring(to: location)
+        let suffix = originalText.substring(from: location + length)
+        let previousParentIDs = checkboxAncestorIDs(in: document.items, ofItemAt: index)
+
+        var pastedItems = sourceItems.map { source in
+            OutlineItem(
+                depth: source.depth,
+                kind: source.kind,
+                text: source.text,
+                checked: source.checked,
+                manualStrikethrough: source.manualStrikethrough,
+                createdAt: now,
+                updatedAt: now
+            )
+        }
+        pastedItems[0].text = prefix + pastedItems[0].text
+        let lastIndex = pastedItems.count - 1
+        let caretOffset = pastedItems[lastIndex].text.utf16.count
+        pastedItems[lastIndex].text += suffix
+
+        document.items.replaceSubrange(index...index, with: pastedItems)
+        document.updatedAt = now
+        let lastDocumentIndex = index + lastIndex
+        var affectedParentIDs = previousParentIDs
+        for pastedIndex in index...lastDocumentIndex {
+            affectedParentIDs.append(contentsOf: checkboxAncestorIDs(in: document.items, ofItemAt: pastedIndex))
+            if document.items[pastedIndex].kind == .checkbox {
+                affectedParentIDs.append(document.items[pastedIndex].id)
+            }
+        }
+        synchronizeParentCompletions(in: &document, parentIDs: affectedParentIDs, now: now)
+        return OutlinePasteResult(
+            itemID: document.items[lastDocumentIndex].id,
+            caretOffset: caretOffset
+        )
     }
 
     public static func toggleCompletion(in document: inout DayDocument, id: UUID, now: Date = Date()) {

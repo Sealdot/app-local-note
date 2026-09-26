@@ -154,6 +154,24 @@ final class AppModel: ObservableObject {
         mutate { OutlineEditor.updateText(in: &$0, id: id, text: text) }
     }
 
+    @discardableResult
+    func paste(
+        items: [OutlineItem],
+        replacing id: UUID,
+        utf16Range selection: NSRange
+    ) -> OutlinePasteResult? {
+        var result: OutlinePasteResult?
+        mutate { document in
+            result = OutlineEditor.paste(
+                items,
+                in: &document,
+                replacing: id,
+                utf16Range: selection
+            )
+        }
+        return result
+    }
+
     var canUndo: Bool { !undoStack.isEmpty }
     var canRedo: Bool { !redoStack.isEmpty }
 

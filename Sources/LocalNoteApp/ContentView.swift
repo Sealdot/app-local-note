@@ -361,6 +361,9 @@ struct ContentView: View {
                     onClearTextSelection: clearSelections,
                     onDragTextSelection: updateTextSelection,
                     onCopySelection: copySelection,
+                    onPasteItems: { items, selection in
+                        paste(items: items, replacing: item.id, selection: selection)
+                    },
                     onTextChange: clearSelections,
                     onBeginEditing: {
                         activeItemID = item.id
@@ -506,20 +509,41 @@ struct ContentView: View {
         clearTextSelection()
     }
 
-    private func copySelection() -> Bool {
+    private func copySelection(_ activeSelection: NSRange? = nil) -> Bool {
         let value: String?
+        let items: [OutlineItem]?
         if let textSelection = textSelection {
             value = textSelection.text(in: model.document.items)
+            items = textSelection.items(in: model.document.items)
         } else {
             let ids = selectedItemIDs
-            value = ids.count > 1
-                ? model.document.items.filter { ids.contains($0.id) }.map(\.text).joined(separator: "\n")
-                : nil
+            if ids.count > 1 {
+                let selectedItems = model.document.items.filter { ids.contains($0.id) }
+                value = selectedItems.map(\.text).joined(separator: "\n")
+                items = selectedItems
+            } else if let activeItemID = activeItemID,
+                      let item = model.document.items.first(where: { $0.id == activeItemID }),
+                      activeSelection == NSRange(location: 0, length: item.text.utf16.count) {
+                value = item.text
+                items = [item]
+            } else {
+                value = nil
+                items = nil
+            }
         }
-        guard let value = value else { return false }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        return pasteboard.setString(value, forType: .string)
+        guard let value = value, let items = items else { return false }
+        return OutlineClipboard.write(items: items, plainText: value, to: .general)
+    }
+
+    private func paste(items: [OutlineItem], replacing itemID: UUID, selection: NSRange) -> Bool {
+        clearSelections()
+        guard let result = model.paste(
+            items: items,
+            replacing: itemID,
+            utf16Range: selection
+        ) else { return false }
+        requestFocus(itemID: result.itemID, caretOffset: result.caretOffset)
+        return true
     }
 
     private func performHistory(
@@ -934,6 +958,47 @@ struct OutlineTextSelection: Equatable {
             return (item.text as NSString).substring(with: range)
         }.joined(separator: "\n")
     }
+
+    func items(in items: [OutlineItem]) -> [OutlineItem]? {
+        guard let anchorIndex = items.firstIndex(where: { $0.id == anchor.itemID }),
+              let extentIndex = items.firstIndex(where: { $0.id == extent.itemID }),
+              anchorIndex != extentIndex else { return nil }
+        let lowerIndex = min(anchorIndex, extentIndex)
+        let upperIndex = max(anchorIndex, extentIndex)
+        return items[lowerIndex...upperIndex].compactMap { item in
+            guard let range = range(for: item, in: items) else { return nil }
+            var fragment = item
+            fragment.text = (item.text as NSString).substring(with: range)
+            return fragment
+        }
+    }
+}
+
+enum OutlineClipboard {
+    static let pasteboardType = NSPasteboard.PasteboardType("dev.sealdot.local-note.outline-items")
+
+    private struct Payload: Codable {
+        let version: Int
+        let items: [OutlineItem]
+    }
+
+    static func write(items: [OutlineItem], plainText: String, to pasteboard: NSPasteboard) -> Bool {
+        guard !items.isEmpty,
+              let data = try? JSONEncoder().encode(Payload(version: 1, items: items)) else { return false }
+        let pasteboardItem = NSPasteboardItem()
+        pasteboardItem.setString(plainText, forType: .string)
+        pasteboardItem.setData(data, forType: pasteboardType)
+        pasteboard.clearContents()
+        return pasteboard.writeObjects([pasteboardItem])
+    }
+
+    static func read(from pasteboard: NSPasteboard) -> [OutlineItem]? {
+        guard let data = pasteboard.data(forType: pasteboardType),
+              let payload = try? JSONDecoder().decode(Payload.self, from: data),
+              payload.version == 1,
+              !payload.items.isEmpty else { return nil }
+        return payload.items
+    }
 }
 
 private enum OutlineHistoryDirection {
@@ -970,7 +1035,8 @@ private struct OutlineEditorField: NSViewRepresentable {
     let onSelectRow: (_ extending: Bool) -> Void
     let onClearTextSelection: () -> Void
     let onDragTextSelection: (_ anchor: OutlineTextPosition, _ extent: OutlineTextPosition) -> Void
-    let onCopySelection: () -> Bool
+    let onCopySelection: (NSRange?) -> Bool
+    let onPasteItems: (_ items: [OutlineItem], _ selection: NSRange) -> Bool
     let onTextChange: () -> Void
     let onBeginEditing: () -> Void
     let onEndEditing: () -> Void
@@ -1003,6 +1069,7 @@ private struct OutlineEditorField: NSViewRepresentable {
         field.onClearTextSelection = onClearTextSelection
         field.onDragTextSelection = onDragTextSelection
         field.onCopySelection = onCopySelection
+        field.onPasteItems = onPasteItems
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         return field
     }
@@ -1019,6 +1086,7 @@ private struct OutlineEditorField: NSViewRepresentable {
         (field as? OutlineTextField)?.onClearTextSelection = onClearTextSelection
         (field as? OutlineTextField)?.onDragTextSelection = onDragTextSelection
         (field as? OutlineTextField)?.onCopySelection = onCopySelection
+        (field as? OutlineTextField)?.onPasteItems = onPasteItems
         (field as? OutlineTextField)?.applyTextAppearance(
             textColor: textColor,
             insertionPointColor: insertionPointColor
@@ -1111,7 +1179,8 @@ private final class OutlineTextField: NSTextField {
     var onSelectRow: ((Bool) -> Void)?
     var onClearTextSelection: (() -> Void)?
     var onDragTextSelection: ((OutlineTextPosition, OutlineTextPosition) -> Void)?
-    var onCopySelection: (() -> Bool)?
+    var onCopySelection: ((NSRange?) -> Bool)?
+    var onPasteItems: (([OutlineItem], NSRange) -> Bool)?
     private var pendingFocusRequest: OutlineFocusRequest?
     private var appliedFocusToken: UUID?
     private var measuredWidth: CGFloat = 0
@@ -1506,8 +1575,17 @@ private final class OutlineTextField: NSTextField {
     }
 
     @objc func copyLocalNote(_ sender: Any?) {
-        if onCopySelection?() == true { return }
+        if onCopySelection?((currentEditor() as? NSTextView)?.selectedRange()) == true { return }
         (currentEditor() as? NSTextView)?.copy(sender)
+    }
+
+    @objc func pasteLocalNote(_ sender: Any?) {
+        if let items = OutlineClipboard.read(from: .general),
+           let editor = currentEditor() as? NSTextView,
+           onPasteItems?(items, editor.selectedRange()) == true {
+            return
+        }
+        (currentEditor() as? NSTextView)?.paste(sender)
     }
 
     @objc func undoLocalNote(_ sender: Any?) {
