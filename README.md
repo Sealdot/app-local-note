@@ -2,114 +2,50 @@
 
 [简体中文](README.zh-CN.md) · English
 
-Local Note is a small, offline-first macOS menu bar work log. It keeps the
-current day available without a browser and can optionally synchronize the
-day's outline to a Notion page.
+**Local Note is a macOS menu bar work log for people who want to capture today's tasks, check them off, and revisit their day—with records saved locally.**
 
-The project is intentionally native and dependency-free:
+## Download and status
 
-- status bar icon and popover; no Dock window
-- AppKit + SwiftUI; no Electron and no embedded web view
-- one JSON file per day; only the selected day is held in memory
-- on-demand monthly calendar overview with contribution-style completion levels
-- four paired appearance themes, system/light/dark modes, and six accent colors
-- credentials stored in macOS Keychain
-- event-driven synchronization; no background polling loop
-- outline-aware copy and paste that preserves row types, nesting, and completion
+Download the [v0.2.0 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/download/v0.2.0/LocalNote-macOS.zip), extract it, and open `LocalNote.app`. [Release notes and SHA-256 checksum](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0).
 
-> Local Note is an independent open-source project and is not affiliated with
-> or endorsed by Notion Labs, Inc.
+The download contains Apple Silicon and Intel binaries, with a **macOS 11 minimum build target**. It was checked on Apple Silicon with macOS 14.2.1; Intel/macOS 11 runtime checks remain outstanding. **The app interface is primarily Chinese.**
 
-## Download
+> **Early self-use MVP. Ad-hoc signed, not Apple notarized.** macOS may block the first launch. If you trust the download, use the system's Privacy & Security approval flow and keep Gatekeeper enabled. A [source build](docs/development.md#build-and-run) is also available.
 
-Download the [latest macOS ZIP](https://github.com/Sealdot/app-local-note/releases/latest/download/LocalNote-macOS.zip), extract it, and open `LocalNote.app`. The universal build supports Apple Silicon and Intel Macs running macOS 11 or newer. Release notes and a SHA-256 checksum are on the [Releases page](https://github.com/Sealdot/app-local-note/releases/latest).
+## See a workday
 
-Release builds are ad-hoc signed and **not notarized**. macOS may ask you to approve opening the downloaded app in **System Settings → Privacy & Security**. If you prefer, build the app from source using the commands below. The app interface currently uses Chinese; this README and the [Chinese guide](README.zh-CN.md) provide documentation in both languages.
+<a href="docs/assets/readme/workday-light.png"><img src="docs/assets/readme/workday-light.png" alt="Local Note daily outline: a completed weekly-meeting task, numbered steps, and two remaining tasks; fictional sample data" width="440"></a>
 
-## Project status
+*Actual native application-view capture from the v0.2.0 code, with fictional tasks instead of private work records. The menu bar and popover frame are outside this capture. Click for full size. [Screenshot source and version](docs/readme-media.md).*
 
-Early self-use MVP. Downloadable, ad-hoc signed builds are available on the
-[Releases page](https://github.com/Sealdot/app-local-note/releases); notarized
-builds are not currently distributed.
+## Three ways it helps
 
-## Build requirements
+- **Capture without leaving your work.** Open the menu bar popover and write in today's outline, including when offline.
+- **Turn a task into steps.** Use checkboxes and numbered children; copy and paste outline rows with their hierarchy and completion state intact.
+- **Return to what you did.** Pick a date from the month calendar to reopen its record. Day colors reflect completed checkbox counts, not a productivity score.
 
-- macOS 11 or newer
-- Swift 5.4 or newer Command Line Tools
-- no full Xcode installation is required for command-line builds
+## First use
 
-```sh
-./scripts/build.sh
-./scripts/test.sh
-./scripts/package-app.sh
-open build/LocalNote.app
-```
+1. Open `LocalNote.app` and click the checklist icon in the **macOS menu bar**. There is no Dock icon or main document window.
+2. Click **+**, type `准备周会` (prepare the weekly meeting), and press Return to add another task. No Notion account or token is needed.
+3. Check off the first task. Click the calendar button, then select today's date to return to its outline.
 
-With a full Xcode installation, the Swift Package can also be built with
-`swift build`. The repository scripts compile directly with `swiftc` so the
-self-use workflow works with Command Line Tools alone.
+**Expected result:** close and reopen the popover; today's text and checked state remain. Without Notion configured, the footer can show `未配置 Notion` or `仅本地`; the record is still saved locally. [Keyboard controls, calendar, and appearance settings](docs/user-guide.md).
 
-## Outline keyboard interaction
+**Local privacy:** records and sync snapshots are unencrypted JSON under `~/Library/Application Support/LocalNote/`. Back them up yourself; there is no built-in backup workflow. Appearance settings stay on this Mac. The current source includes no analytics or telemetry client. [Security policy](SECURITY.md).
 
-- long items wrap to as many lines as needed and grow while editing;
-- `Up` / `Down`: move to the previous or next item;
-- `Return`: split at the caret and focus the right-hand item; at line end, add
-  a peer after the current item's descendants;
-- `Tab` / `Shift-Tab`: indent or outdent the current item;
-- after a top-level checkbox, press `Return` then `Tab` on the empty row to
-  create its first numbered child (`1.`);
-- type `1. ` at the beginning of an empty row to create a numbered structure;
-- `Return` continues numbered rows as `2.`, `3.`, and so on;
-- indenting a numbered child again uses alphabetic markers such as `a.`;
-- `Backspace` on an empty alphabetic row exits to the next parent-level number
-  (for example, empty `b.` becomes `2.`);
-- `Backspace` on an empty numbered child returns it to the next parent-level
-  checkbox to-do;
-- `Shift-Up` / `Shift-Down` or `Shift-click`: select consecutive items;
-- drag the mouse or trackpad across rows to select partial or complete lines;
-- `Command-C`: copy a cross-row selection with line breaks preserved;
-- `Command-V`: paste copied outline rows while preserving their structure and styles;
-- `Command-Shift-S`: toggle strikethrough for the current item or all selected items;
-- `Backspace`: edit text normally, then remove an empty row and return to the previous item;
-- `Command-Z` / `Command-Shift-Z`: undo or redo text and outline-structure changes;
-- right-click: completion, hierarchy, row type, strikethrough, and delete actions.
+## Optional Notion sync
 
-## Calendar overview
+Notion sync is implemented as an **optional, experimental integration**; this README review did not test a live Notion page. Start with a dedicated test page and a separate backup. Enter your own page ID/URL and integration token in Settings; the token is stored in macOS Keychain, and enabling sync sends page content to Notion.
 
-Use the calendar button in the popover header to review a fixed six-week month.
-Days with to-dos are marked, and the accent color becomes darker as more
-checkbox to-dos are completed. Selecting a day returns directly to its outline.
-The overview reads only its visible 42-day range when opened or changed; normal
-outline editing continues to keep only the selected day in memory.
+Sync is event-driven: remote edits need manual refresh or reopening the popover. When both sides changed, you choose which day's version to keep; there is no automatic merge. API writes replace full-page Markdown, so concurrent edits outside that day are not protected by a transactional merge. [Setup, conflict choices, and overwrite safeguards](docs/user-guide.md#optional-notion-sync).
 
-## Appearance
+Local Note is an independent open-source project, unaffiliated with Notion Labs, Inc.
 
-Open Settings and use the Appearance section to follow the system appearance or
-force Light or Dark mode. System Native, Paper, Graphite, and Midnight themes
-each include paired light and dark palettes. Six curated accent colors update
-selection, completed checkboxes, and the calendar completion ramp immediately.
-Appearance preferences stay on the current Mac and are never synchronized to
-Notion.
+## Development docs
 
-## Notion setup
+Start with the [build and verification guide](docs/development.md) and [contribution rules](CONTRIBUTING.md). Use [Issues](https://github.com/Sealdot/app-local-note/issues) for reproducible bugs and feature discussion; report credential exposure or data-loss vulnerabilities through [SECURITY.md](SECURITY.md).
 
-Notion sync is optional. Create your own Notion token, grant it access only to
-the page used by Local Note, and enter the token in the app. The token is saved
-to Keychain and is never written to the repository or daily JSON files.
+[Architecture](docs/architecture.md) · [Test plan](docs/test-plan.md) · [Historical performance measurements](docs/performance.md) · [Milestones and deferred work](docs/implementation-plan.md) · [MIT license](LICENSE)
 
-Synchronization remains event-driven to keep idle resource use low. It runs
-when the popover opens, when the refresh button is pressed, shortly after a
-local edit, and when the network becomes available again. Changes made in
-Notion while the popover is already open require the refresh button (or closing
-and reopening the popover); there is intentionally no background polling.
-Online requests normally finish within a few seconds and fail with a visible
-error after 15 seconds instead of leaving the status spinning indefinitely.
-
-See the [calendar overview design](docs/calendar-overview.md),
-[architecture](docs/architecture.md), [implementation plan](docs/implementation-plan.md),
-the [test plan](docs/test-plan.md), the measured [performance baseline](docs/performance.md),
-and the [app icon rationale](docs/icon-design.md).
-
-## License
-
-MIT
+Public OAuth, webhook updates, collaborative merging, attachments/rich inline content, and notarized distribution remain deferred, with no promised release date.

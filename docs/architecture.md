@@ -57,6 +57,11 @@ the latest remote day and replaces only the local day. "以本地为准" first
 re-fetches the full page, then replaces only the selected remote date section
 with the local day. Neither choice runs without a user click.
 
+The API write uses full-page Markdown replacement, even though the local
+decision and replacement logic operate on the selected date section. Edits to
+other sections made between the remote read and write are not protected by a
+transactional merge. Use a dedicated page and keep a backup when trying sync.
+
 If Notion reports a truncated Markdown response, synchronization stops before
 any PATCH. Replacing a page from a partial response could otherwise erase
 content that was not returned by the API.
@@ -87,7 +92,7 @@ These are engineering targets, not platform guarantees:
 - idle CPU: effectively zero, with no application-owned repeating timer;
 - loaded documents: one by default;
 - popover width: 420 points, virtualized scrolling for long days;
-- network payload: current day only;
+- network payload: full page Markdown, with the selected date section replaced;
 - saves: 350 ms debounce and atomic file replacement;
 - sync: 3 second debounce and at most one in-flight request;
 - external runtime dependencies: zero.
