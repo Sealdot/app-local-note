@@ -1,0 +1,68 @@
+# README 截图来源与版本核验
+
+## 重构初始核验（历史记录）
+
+2026-09-28 重构初始核对时，`main` 和 `codex/sync-normalization-conflict` 均指向 `e342c66a2465ccd5ef84e1223221fbda48fa8acc`，两者的 `README.md` blob SHA 都是 `ccbd029e11211f00d0ef3edc74a2b31b2c0cdc52`。上一轮重构未提交、未推送，没有对应的新版 commit 或 GitHub 文件链接。随后基于该本地稿整理并推送为提交 `28da87e66529a9eba66ef54eb5d0237ee1bec288`，分支为 `codex/sync-normalization-conflict`；应用源码、`main`、仓库可见性及 v0.2.0 发布状态不随文档更新改变。
+
+GitHub 首页实际展示根目录 `README.md`；中文入口为 `README.zh-CN.md`。本轮两份 README 都按“用户价值 → 下载与必要状态 → 一张真实界面截图 → 三个收益 → 第一次使用 → 可选 Notion → 开发文档”组织。详细快捷键、月历/外观操作和同步覆盖风险在 [使用指南](user-guide.md)，构建和工程索引在 [开发指南](development.md)。
+
+## 一张真实界面截图
+
+采用 [workday-light.png](assets/readme/workday-light.png)。它来自运行中的生产 `ContentView` / `AppModel`，使用 `NSHostingController` 承载原生视图，通过 AppKit 的 `cacheDisplay` 截取实际界面；不是生成图、重绘 UI 或拼接控件。截图不包含菜单栏和弹窗外框，不宣称它是完整菜单栏现场录屏。
+
+- 应用源码版本：v0.2.0，`e342c66a2465ccd5ef84e1223221fbda48fa8acc`。文档提交与这个应用源码基线是两个不同的版本标识。
+- 捕获环境：Apple 芯片、macOS 14.2.1、Swift 5.4 Command Line Tools。
+- 视图 440 × 560 point；PNG 880 × 1120 pixel（2×）；README 按 440 px 展示，窄屏缩至容器宽度，可点击原图。
+- 固定示例日期：2026-09-28。内容为“准备周会”“整理上周进展”“列出本周优先事项”“跟进反馈”“确认下一步安排”“写下今天的复盘”，完全虚构，不是历史工作成果。
+- 脱敏方式：先用隔离的虚构记录替代私人数据，再捕获；没有模糊真实文字、伪造截图内容或覆盖产品控件。Notion 未配置，不包含 Token、页面 ID、真实工作内容或其他应用窗口。
+- [截图脚本](../scripts/ReadmePreview.swift)使用临时数据目录、独立 UserDefaults suite、空 SecretStore，关闭网络监视，不读取用户笔记、钥匙串或偏好。正常退出时清理自己的样本。
+
+在仓库根目录复现：
+
+```sh
+./scripts/render-readme-media.sh
+```
+
+输出为 `build/readme-media/workday-light.png`。工具也验证完成状态切换、保存、切换日期及重新加载后记录内容一致。逐张打开检查后，才复制到 `docs/assets/readme/`。如果进程异常退出，可能留下带 `LocalNoteReadmePreview-*` 或 `dev.sealdot.LocalNote.readme-preview.*` 前缀的临时样本；不要清理用户的数据目录。
+
+此截图验证了真实视图和模型存储路径，不能替代菜单栏点击、Gatekeeper 首次启动或完整键盘操作验收。捕获时原生窗口控制服务返回启动失败；这不妨碍复现上述真实视图截图。**本轮不要求视频，未录视频不是完成阻塞项。**
+
+### PNG SHA-256
+
+```text
+4666e5f429759167b4a5123b6ced1f1ccc643eb034e9e81bd2e96bace84a27b5  docs/assets/readme/workday-light.png
+```
+
+## 既有素材的边界
+
+`docs/assets/theme-appearance-p0-option-1.png` 是生成的设计参考；`theme-p0-settings-comparison.png` 含有该参考，都不得作为产品截图。其余 `theme-p0-*` 原生主题图是历史示例状态，本轮不采用。品牌图标也不是产品界面截图。既有素材来源见 [历史设计 QA](../design-qa.md) 和 [图标说明](icon-design.md)。
+
+## 验证记录
+
+### 精修的验证范围
+
+本次精修以已推送的 `28da87e66529a9eba66ef54eb5d0237ee1bec288` 为文档基线，仅调整中英文定位、下载提示、图注和同步风险表达，并将完整安装说明移到 [安装指南](installation.md)。应用源码和截图没有变化。
+
+Notion 代码已有实现与 stub 回归，但历次 README 核验均未连接真实 Notion 页面；这不能作为在线往返、冲突或跨设备验收。发布包在 Apple 芯片、macOS 14.2.1 上检查；Intel 与 macOS 11 实际运行仍未验证。首页保留实验性、备份、覆盖风险、未经公证、中文界面和 MVP 限制，具体兼容性说明在安装指南。
+
+当前视图截图继续使用；包含菜单栏和完整弹窗的场景截图是后续增强，不是当前素材的来源描述。本轮不要求视频。
+
+- [v0.2.0](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0) 的 ZIP 与校验文件已实际下载并核验；包内版本 0.2.0、arm64 + x86_64、最低系统声明 11.0、ad-hoc 签名。没有新增或虚构下载链接。
+- 上一轮 `package-app.sh`、`test.sh`、`verify.sh` 通过，测试 80/80；性能 smoke 也通过。这是当时本机检查，未作为跨设备兼容或新性能宣传结论。源码本轮没有变化。
+- 精修内容已在 `d5de1651d6381a02a21e48d2994e1945394cbcad` 提交并推送。本轮 `git diff --check` 和 49 个文档路径/锚点检查通过，5 份远端文档与本地内容一致。截图及捕获脚本没有改动，也没有重新捕获截图。
+- 已直接打开该分支的中英文 GitHub README 和双语安装章节，确认七段顺序、语言入口、图注、安装锚点与同步风险提示；图片加载为 880 × 1120，远端 PNG 与上述 SHA-256 一致。下载 ZIP 的实际链接返回 HTTP 200。
+- GitHub 实际浅色页面在 375 px 中文及 320 px 英文窄屏检查，无横向溢出，图片按容器宽度缩放。深色检查使用同一份 GitHub API 渲染结果及已有 GitHub 主题 CSS 的本地预览，中英文文字、链接、状态提示和图片均可读；这不是 GitHub 深色模式的现场截图。
+
+尚未验收的产品条件：真实 Notion 往返需要授权测试页面和令牌；Intel/macOS 11 运行需要对应测试环境。Notion 的“实验性”描述的是验证程度，不是新增 feature flag。开发指南保留这些限制以及未经公证、中文界面、MVP 状态。
+
+### 独立文档 PR 的范围
+
+从远端 `main`（`e342c66a2465ccd5ef84e1223221fbda48fa8acc`）建立 `codex/readme-docs`，仅移入原开发分支的三个文档提交。与 `main` 的差异为两份 README、现有 PNG、使用/安装/开发/素材文档、贡献入口和两份截图复现脚本；架构与历史计划的改动仅澄清同步覆盖风险和已实现/延后范围。应用源码、现有测试、包配置和 CI 配置均与 `main` 一致。
+
+定稿中英文 README 和 PNG 与 `codex/sync-normalization-conflict` 的 `43d83ce5c739c27684f236ac9ba9dea8ad87bf31` 内容逐字节一致。完整菜单栏场景图保留为后续增强，视频不是此 PR 的验收前提。
+
+本轮检查覆盖全部 9 份变更 Markdown 的 66 个相对路径/锚点，截图脚本通过 shell 语法检查，PNG SHA-256 保持不变；v0.2.0 ZIP 下载入口仍返回 HTTP 200。
+
+独立文档工作区的 `verify.sh` 通过，80/80 测试及通用应用打包校验成功；`test.sh --performance` 的隔离性能回归通过（2/2）。本机已有 `/Applications/LocalNote.app` 运行，完整 `performance-smoke.sh` 会终止匹配到的进程，因此本轮未重复其启动/空闲采样检查；此前通过记录仅作为历史结果，不代表本轮运行验收。
+
+仍未完成的视觉/运行验证：完整菜单栏及弹窗现场、GitHub 实际深色模式、Gatekeeper 首次打开及完整键盘操作、Intel/macOS 11 运行、真实 Notion 往返与跨设备同步。已有本地深色预览和原生视图截图不能替代这些检查。

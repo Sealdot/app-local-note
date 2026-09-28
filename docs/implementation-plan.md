@@ -1,5 +1,12 @@
 # Implementation plan
 
+This is the historical MVP plan. The local outline, calendar, appearance,
+packaging, and optional Notion transport are implemented in v0.2.0; they are
+not equally validated on every platform or live service. See the
+[release-state check](development.md#release-state-checked-on-2026-09-28) and
+[README](../README.md#optional-notion-sync) for the current visitor-facing status.
+Milestones below describe delivered implementation areas, not open tasks.
+
 ## MVP scope
 
 1. Status bar icon opens and closes a compact popover.
@@ -20,6 +27,10 @@
 - collaborative or CRDT merging
 - signed and notarized public downloads
 - attachments, images, and rich inline spans
+
+These items remain deferred, with no committed delivery date. The existing
+ad-hoc-signed GitHub ZIP is available; Developer ID signing and Apple
+notarization remain deferred.
 
 ## Milestones
 
