@@ -49,7 +49,7 @@ cross-device guarantees.
 - GitHub default branch: `main`; homepage README: root `README.md`.
 - Application-source baseline, remote `main`, and release tag `v0.2.0`:
   `e342c66a2465ccd5ef84e1223221fbda48fa8acc`. Documentation updates live on
-  `codex/sync-normalization-conflict`; this source baseline is not the README
+  `codex/readme-docs`; this source baseline is not the README
   update commit.
 - [v0.2.0](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0) is a
   published, non-prerelease GitHub release, dated 2026-09-26. It contains

@@ -54,3 +54,15 @@ Notion 代码已有实现与 stub 回归，但历次 README 核验均未连接�
 - GitHub 实际浅色页面在 375 px 中文及 320 px 英文窄屏检查，无横向溢出，图片按容器宽度缩放。深色检查使用同一份 GitHub API 渲染结果及已有 GitHub 主题 CSS 的本地预览，中英文文字、链接、状态提示和图片均可读；这不是 GitHub 深色模式的现场截图。
 
 尚未验收的产品条件：真实 Notion 往返需要授权测试页面和令牌；Intel/macOS 11 运行需要对应测试环境。Notion 的“实验性”描述的是验证程度，不是新增 feature flag。开发指南保留这些限制以及未经公证、中文界面、MVP 状态。
+
+### 独立文档 PR 的范围
+
+从远端 `main`（`e342c66a2465ccd5ef84e1223221fbda48fa8acc`）建立 `codex/readme-docs`，仅移入原开发分支的三个文档提交。与 `main` 的差异为两份 README、现有 PNG、使用/安装/开发/素材文档、贡献入口和两份截图复现脚本；架构与历史计划的改动仅澄清同步覆盖风险和已实现/延后范围。应用源码、现有测试、包配置和 CI 配置均与 `main` 一致。
+
+定稿中英文 README 和 PNG 与 `codex/sync-normalization-conflict` 的 `43d83ce5c739c27684f236ac9ba9dea8ad87bf31` 内容逐字节一致。完整菜单栏场景图保留为后续增强，视频不是此 PR 的验收前提。
+
+本轮检查覆盖全部 9 份变更 Markdown 的 66 个相对路径/锚点，截图脚本通过 shell 语法检查，PNG SHA-256 保持不变；v0.2.0 ZIP 下载入口仍返回 HTTP 200。
+
+独立文档工作区的 `verify.sh` 通过，80/80 测试及通用应用打包校验成功；`test.sh --performance` 的隔离性能回归通过（2/2）。本机已有 `/Applications/LocalNote.app` 运行，完整 `performance-smoke.sh` 会终止匹配到的进程，因此本轮未重复其启动/空闲采样检查；此前通过记录仅作为历史结果，不代表本轮运行验收。
+
+仍未完成的视觉/运行验证：完整菜单栏及弹窗现场、GitHub 实际深色模式、Gatekeeper 首次打开及完整键盘操作、Intel/macOS 11 运行、真实 Notion 往返与跨设备同步。已有本地深色预览和原生视图截图不能替代这些检查。
