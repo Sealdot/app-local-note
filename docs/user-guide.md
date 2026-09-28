@@ -4,6 +4,9 @@ The app labels are primarily Chinese. This guide uses the same workday as the
 README: prepare a weekly meeting, follow up on feedback, and write a reflection.
 The README screenshot contains fictional demonstration data, not real work records.
 
+For download requirements and opening the app for the first time, see
+[Installation](installation.md#installation) / [安装](installation.md#安装).
+
 ## Capture and complete
 
 Open `LocalNote.app`, then click the checklist icon in the macOS menu bar. There
@@ -54,7 +57,7 @@ immediately, persist locally, and are not sent to Notion.
 ## Optional Notion sync
 
 This is an implemented, experimental integration. The local workday above does
-not need it. This README review did not exercise a live Notion connection.
+not need it. Start with a dedicated test page and keep an independent backup.
 
 1. Use your own Notion integration token and grant it access only to a dedicated
    test page. Keep a separate backup of any page you care about.
