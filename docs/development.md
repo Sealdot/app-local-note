@@ -34,6 +34,13 @@ alternate route was not exercised during the README review.
 ```sh
 ./scripts/test.sh
 ./scripts/verify.sh
+```
+
+> Before running `performance-smoke.sh`, save your records and quit all Local
+> Note instances. The script selects and terminates processes by name and may
+> affect an instance you use for daily work.
+
+```sh
 ./scripts/performance-smoke.sh
 ```
 
