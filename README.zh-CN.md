@@ -2,21 +2,19 @@
 
 简体中文 · [English](README.md)
 
-**给想随手记录当天工作、勾选完成并按日期回看的 Mac 用户：Local Note 把工作日志放进菜单栏，记录优先保存在本机。**
+**Local Note 是一款本地优先的 macOS 菜单栏工作日志，用来记录当天待办、勾选完成，并按日期回看工作。**
 
 ## 下载与项目状态
 
-下载 [v0.2.0 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/download/v0.2.0/LocalNote-macOS.zip)，解压并打开 `LocalNote.app`。[版本说明与 SHA-256 校验文件](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0)。
+下载 [v0.2.0 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/download/v0.2.0/LocalNote-macOS.zip)。[版本说明与 SHA-256 校验文件](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0)。
 
-下载包包含 Apple 芯片与 Intel 两种架构，**最低构建目标为 macOS 11**。本次在 Apple 芯片、macOS 14.2.1 上检查；Intel/macOS 11 的运行验证仍待完成。**应用界面目前以中文为主。**
-
-> **项目处于自用 MVP 阶段；下载包使用临时签名，未经 Apple 公证。** macOS 可能阻止首次打开。确认信任下载来源后，通过系统“隐私与安全性”的允许打开流程处理，并保留 Gatekeeper。也可以[从源码构建](docs/development.md#build-and-run)。
+> **早期 MVP · 中文界面为主 · 临时签名，未经 Apple 公证。** macOS 可能阻止首次打开。请先阅读[安装要求与首次打开说明](docs/installation.md#安装)。
 
 ## 看一个工作日
 
 <a href="docs/assets/readme/workday-light.png"><img src="docs/assets/readme/workday-light.png" alt="Local Note 当天大纲：已完成的周会任务、编号步骤和两项未完成待办；内容均为虚构示例" width="440"></a>
 
-*真实原生应用视图截图，来自 v0.2.0 代码；以虚构任务替代私人工作记录。截图不包含菜单栏和弹窗外框。点击查看原图。[截图来源与版本说明](docs/readme-media.md)。*
+*真实应用视图，内容为虚构示例。点击图片查看原图。[截图来源](docs/readme-media.md)。*
 
 ## 三个核心收益
 
@@ -36,9 +34,9 @@
 
 ## 可选 Notion 同步
 
-Notion 同步已有实现，属于**可选的实验性集成**；本次 README 核验未连接真实 Notion 页面。请先使用专门的测试页面并另行备份。在设置中填写自己的页面 ID/URL 和集成 Token；Token 存入 macOS 钥匙串，启用同步后会向 Notion 传输页面内容。
+Notion 同步是**可选的实验性功能**。请先使用专门的测试页面，并为重要内容保留独立备份。在设置中填写自己的页面 ID/URL 和集成 Token；Token 存入 macOS 钥匙串，启用同步后会向 Notion 传输页面内容。
 
-同步由事件触发，远端修改需手动刷新或重新打开弹窗。两边都修改时，要选择保留哪一方当天内容，不会自动合并。API 写入会替换整页 Markdown，无法通过事务合并保护其他日期的并发修改。[配置、冲突选择与覆盖风险说明](docs/user-guide.md#optional-notion-sync)。
+远端修改需手动刷新或重新打开弹窗。两边都修改时，选择保留一方当天内容会放弃另一方的改动，不会自动合并。同步写入会替换页面的 Markdown，同步期间对页面其他内容的修改也可能被覆盖。[配置、冲突选择与覆盖风险说明](docs/user-guide.md#optional-notion-sync)。
 
 Local Note 是独立开源项目，与 Notion Labs, Inc. 无关联，也未获得其认可。
 

@@ -2,21 +2,19 @@
 
 [简体中文](README.zh-CN.md) · English
 
-**Local Note is a macOS menu bar work log for people who want to capture today's tasks, check them off, and revisit their day—with records saved locally.**
+**Local Note is an offline-first macOS menu bar work log. Capture daily tasks, check them off, and revisit past days.**
 
 ## Download and status
 
-Download the [v0.2.0 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/download/v0.2.0/LocalNote-macOS.zip), extract it, and open `LocalNote.app`. [Release notes and SHA-256 checksum](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0).
+Download the [v0.2.0 macOS ZIP](https://github.com/Sealdot/app-local-note/releases/download/v0.2.0/LocalNote-macOS.zip). [Release notes and SHA-256 checksum](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0).
 
-The download contains Apple Silicon and Intel binaries, with a **macOS 11 minimum build target**. It was checked on Apple Silicon with macOS 14.2.1; Intel/macOS 11 runtime checks remain outstanding. **The app interface is primarily Chinese.**
-
-> **Early self-use MVP. Ad-hoc signed, not Apple notarized.** macOS may block the first launch. If you trust the download, use the system's Privacy & Security approval flow and keep Gatekeeper enabled. A [source build](docs/development.md#build-and-run) is also available.
+> **Early MVP · primarily Chinese UI · ad-hoc signed, not Apple notarized.** macOS may block the first launch. See [installation requirements and first launch](docs/installation.md#installation).
 
 ## See a workday
 
 <a href="docs/assets/readme/workday-light.png"><img src="docs/assets/readme/workday-light.png" alt="Local Note daily outline: a completed weekly-meeting task, numbered steps, and two remaining tasks; fictional sample data" width="440"></a>
 
-*Actual native application-view capture from the v0.2.0 code, with fictional tasks instead of private work records. The menu bar and popover frame are outside this capture. Click for full size. [Screenshot source and version](docs/readme-media.md).*
+*Native app view with fictional tasks. Click for full size. [Screenshot source](docs/readme-media.md).*
 
 ## Three ways it helps
 
@@ -36,9 +34,9 @@ The download contains Apple Silicon and Intel binaries, with a **macOS 11 minimu
 
 ## Optional Notion sync
 
-Notion sync is implemented as an **optional, experimental integration**; this README review did not test a live Notion page. Start with a dedicated test page and a separate backup. Enter your own page ID/URL and integration token in Settings; the token is stored in macOS Keychain, and enabling sync sends page content to Notion.
+Notion sync is an **optional, experimental integration**. Try it on a dedicated test page and keep a separate backup of any content you care about. Enter your own page ID/URL and integration token in Settings; the token is stored in macOS Keychain, and enabling sync sends page content to Notion.
 
-Sync is event-driven: remote edits need manual refresh or reopening the popover. When both sides changed, you choose which day's version to keep; there is no automatic merge. API writes replace full-page Markdown, so concurrent edits outside that day are not protected by a transactional merge. [Setup, conflict choices, and overwrite safeguards](docs/user-guide.md#optional-notion-sync).
+Remote edits need manual refresh or reopening the popover. When both sides changed, choosing a version discards the other side's changes for that day; there is no automatic merge. Sync writes replace the page's Markdown, so edits elsewhere on the page made during sync can also be overwritten. [Setup, conflict choices, and overwrite safeguards](docs/user-guide.md#optional-notion-sync).
 
 Local Note is an independent open-source project, unaffiliated with Notion Labs, Inc.
 

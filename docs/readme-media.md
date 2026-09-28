@@ -1,8 +1,8 @@
 # README 截图来源与版本核验
 
-## 本轮起点：此前仅有本地稿
+## 重构初始核验（历史记录）
 
-2026-09-28 核对时，`main` 和 `codex/sync-normalization-conflict` 均指向 `e342c66a2465ccd5ef84e1223221fbda48fa8acc`，两者的 `README.md` blob SHA 都是 `ccbd029e11211f00d0ef3edc74a2b31b2c0cdc52`。上一轮重构未提交、未推送，没有对应的新版 commit 或 GitHub 文件链接。本轮基于该本地稿整理，提交目标为 `codex/sync-normalization-conflict`；应用源码、`main`、仓库可见性及 v0.2.0 发布状态不随文档更新改变。
+2026-09-28 重构初始核对时，`main` 和 `codex/sync-normalization-conflict` 均指向 `e342c66a2465ccd5ef84e1223221fbda48fa8acc`，两者的 `README.md` blob SHA 都是 `ccbd029e11211f00d0ef3edc74a2b31b2c0cdc52`。上一轮重构未提交、未推送，没有对应的新版 commit 或 GitHub 文件链接。随后基于该本地稿整理并推送为提交 `28da87e66529a9eba66ef54eb5d0237ee1bec288`，分支为 `codex/sync-normalization-conflict`；应用源码、`main`、仓库可见性及 v0.2.0 发布状态不随文档更新改变。
 
 GitHub 首页实际展示根目录 `README.md`；中文入口为 `README.zh-CN.md`。本轮两份 README 都按“用户价值 → 下载与必要状态 → 一张真实界面截图 → 三个收益 → 第一次使用 → 可选 Notion → 开发文档”组织。详细快捷键、月历/外观操作和同步覆盖风险在 [使用指南](user-guide.md)，构建和工程索引在 [开发指南](development.md)。
 
@@ -25,7 +25,7 @@ GitHub 首页实际展示根目录 `README.md`；中文入口为 `README.zh-CN.m
 
 输出为 `build/readme-media/workday-light.png`。工具也验证完成状态切换、保存、切换日期及重新加载后记录内容一致。逐张打开检查后，才复制到 `docs/assets/readme/`。如果进程异常退出，可能留下带 `LocalNoteReadmePreview-*` 或 `dev.sealdot.LocalNote.readme-preview.*` 前缀的临时样本；不要清理用户的数据目录。
 
-此截图验证了真实视图和模型存储路径，不能替代菜单栏点击、Gatekeeper 首次启动或完整键盘操作验收。原生窗口控制服务本轮仍返回启动失败；这不妨碍复现上述真实视图截图。**本轮不要求视频，未录视频不是完成阻塞项。**
+此截图验证了真实视图和模型存储路径，不能替代菜单栏点击、Gatekeeper 首次启动或完整键盘操作验收。捕获时原生窗口控制服务返回启动失败；这不妨碍复现上述真实视图截图。**本轮不要求视频，未录视频不是完成阻塞项。**
 
 ### PNG SHA-256
 
@@ -38,6 +38,14 @@ GitHub 首页实际展示根目录 `README.md`；中文入口为 `README.zh-CN.m
 `docs/assets/theme-appearance-p0-option-1.png` 是生成的设计参考；`theme-p0-settings-comparison.png` 含有该参考，都不得作为产品截图。其余 `theme-p0-*` 原生主题图是历史示例状态，本轮不采用。品牌图标也不是产品界面截图。既有素材来源见 [历史设计 QA](../design-qa.md) 和 [图标说明](icon-design.md)。
 
 ## 验证记录
+
+### 精修的验证范围
+
+本次精修以已推送的 `28da87e66529a9eba66ef54eb5d0237ee1bec288` 为文档基线，仅调整中英文定位、下载提示、图注和同步风险表达，并将完整安装说明移到 [安装指南](installation.md)。应用源码和截图没有变化。
+
+Notion 代码已有实现与 stub 回归，但历次 README 核验均未连接真实 Notion 页面；这不能作为在线往返、冲突或跨设备验收。发布包在 Apple 芯片、macOS 14.2.1 上检查；Intel 与 macOS 11 实际运行仍未验证。首页保留实验性、备份、覆盖风险、未经公证、中文界面和 MVP 限制，具体兼容性说明在安装指南。
+
+当前视图截图继续使用；包含菜单栏和完整弹窗的场景截图是后续增强，不是当前素材的来源描述。本轮不要求视频。
 
 - [v0.2.0](https://github.com/Sealdot/app-local-note/releases/tag/v0.2.0) 的 ZIP 与校验文件已实际下载并核验；包内版本 0.2.0、arm64 + x86_64、最低系统声明 11.0、ad-hoc 签名。没有新增或虚构下载链接。
 - 上一轮 `package-app.sh`、`test.sh`、`verify.sh` 通过，测试 80/80；性能 smoke 也通过。这是当时本机检查，未作为跨设备兼容或新性能宣传结论。源码本轮没有变化。
